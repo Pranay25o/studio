@@ -1,0 +1,15 @@
+
+{
+  "hosting": {
+    "site": "campusmarks-b3d56-437a7",
+    "source": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "frameworksBackend": {
+      "region": "us-central1"
+    }
+  }
+}
