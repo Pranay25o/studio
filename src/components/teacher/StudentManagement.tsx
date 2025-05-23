@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -68,7 +69,7 @@ export function StudentManagement() {
     try {
       await apiUpdateStudentName(editingStudent.id, data.newName);
       toast({ title: "Student Renamed", description: `${editingStudent.name} is now ${data.newName}.` });
-      fetchStudents(); // Refresh student list
+      fetchStudents(); 
       setIsRenameDialogOpen(false);
     } catch (error) {
       toast({ title: "Error Renaming Student", description: "Could not rename the student.", variant: "destructive" });
@@ -110,7 +111,7 @@ export function StudentManagement() {
              <div className="text-center py-8">
                 <Users className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-2 text-sm font-medium text-foreground">No students found</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Student data will appear here.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Student data will appear here. Ensure students are registered in Firestore.</p>
             </div>
         )}
         {filteredStudents.length === 0 && searchTerm && (
@@ -125,10 +126,10 @@ export function StudentManagement() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>PRN</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="min-w-[100px]">PRN</TableHead>
+              <TableHead className="min-w-[180px]">Name</TableHead>
+              <TableHead className="min-w-[200px]">Email</TableHead>
+              <TableHead className="text-right min-w-[120px]">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AtSign, KeyRound, User as UserIcon, Info, Users, BookUser } from "lucide-react"; // Renamed User to UserIcon
+import { AtSign, KeyRound, User as UserIcon, Info, Users, BookUser } from "lucide-react";
 import React, { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -21,9 +21,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Role, User } from "@/types"; // Added User type
+import type { Role, User } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { getAllTeachers } from "@/lib/mockData"; // Import getAllTeachers
+import { getAllTeachers } from "@/lib/mockData";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -31,7 +31,7 @@ const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  role: z.enum(["student", "teacher", "admin"], { required_error: "You must select a role." }), // Added admin for schema consistency
+  role: z.enum(["student", "teacher", "admin"], { required_error: "You must select a role." }),
   prn: z.string().optional(),
 }).refine(data => {
   if (data.role === 'student' && (!data.prn || data.prn.trim() === '')) {
@@ -49,7 +49,7 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [teachersList, setTeachersList] = useState<User[]>([]); // State for teachers list
+  const [teachersList, setTeachersList] = useState<User[]>([]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -77,22 +77,20 @@ export default function RegisterPage() {
       };
       fetchTeachers();
     } else {
-      setTeachersList([]); // Clear list if not student
+      setTeachersList([]);
     }
   }, [selectedRole, toast]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    // Admins should not be registered through this public form.
     if (values.role === 'admin') {
         toast({ title: "Registration Info", description: "Admin registration is not allowed through this form.", variant: "default" });
         setIsLoading(false);
         return;
     }
 
-    // Normalize PRN to uppercase if role is student
-    const studentPrn = values.role === 'student' && values.prn 
-                       ? values.prn.trim().toUpperCase() 
+    const studentPrn = values.role === 'student' && values.prn
+                       ? values.prn.trim().toUpperCase()
                        : values.prn;
 
     const success = await register(values.name, values.email, values.password, values.role as Role, studentPrn);
@@ -102,16 +100,10 @@ export default function RegisterPage() {
       if (values.role === "teacher") {
         router.push("/teacher/dashboard");
       } else if (values.role === "student") {
-        // For students, navigate to their dashboard which might redirect to marks page or PRN entry
         router.push("/student/dashboard");
       }
-      // Admin redirect won't be hit from UI due to above check
     } else {
-      toast({
-        title: "Registration Failed",
-        description: "User might already exist or an error occurred. Please try again.",
-        variant: "destructive",
-      });
+      // Toast for failure is handled by AuthContext or createUser
     }
   }
 
@@ -180,7 +172,7 @@ export default function RegisterPage() {
                   <RadioGroup
                     onValueChange={field.onChange}
                     defaultValue={field.value}
-                    className="flex space-x-4"
+                    className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-4"
                   >
                     <FormItem className="flex items-center space-x-2 space-y-0">
                       <FormControl>
@@ -237,8 +229,13 @@ export default function RegisterPage() {
                             <p className="font-semibold">{teacher.name}</p>
                             {teacher.subjects && teacher.subjects.length > 0 && (
                               <p className="text-xs text-muted-foreground">
-                                Teaches: {teacher.subjects.join(', ')}
+                                General Subjects: {teacher.subjects.join(', ')}
                               </p>
+                            )}
+                            {teacher.semesterAssignments && teacher.semesterAssignments.length > 0 && (
+                               <p className="text-xs text-muted-foreground">
+                                Semester Subjects: {teacher.semesterAssignments.map(sa => `${sa.semester}: ${sa.subjects.join(', ')}`).join('; ')}
+                               </p>
                             )}
                           </li>
                         ))}
@@ -263,4 +260,3 @@ export default function RegisterPage() {
     </>
   );
 }
-

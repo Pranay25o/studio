@@ -58,7 +58,6 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
     );
   }
 
-  // Group marks by semester
   const marksBySemester: Record<Semester, Mark[]> = marks.reduce((acc, mark) => {
     if (!acc[mark.semester]) {
       acc[mark.semester] = [];
@@ -90,7 +89,7 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
       const totalSemesterObtained = subjectWisePerformance.reduce((sum, subj) => sum + subj.totalObtained, 0);
       const totalSemesterMax = subjectWisePerformance.reduce((sum, subj) => sum + subj.totalMax, 0);
       const overallSemesterPercentage = totalSemesterMax > 0 ? (totalSemesterObtained / totalSemesterMax) * 100 : 0;
-      
+
       return {
         semester,
         subjects: subjectWisePerformance,
@@ -99,12 +98,12 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
         totalSemesterMax,
       };
     })
-    .sort((a, b) => b.semester.localeCompare(a.semester)); // Sort semesters, newest first (e.g. Spring 2024 before Fall 2023)
+    .sort((a, b) => b.semester.localeCompare(a.semester));
 
   const overallTotalObtained = performanceBySemester.reduce((sum, sem) => sum + sem.totalSemesterObtained, 0);
   const overallTotalMax = performanceBySemester.reduce((sum, sem) => sum + sem.totalSemesterMax, 0);
   const overallAveragePercentage = overallTotalMax > 0 ? (overallTotalObtained / overallTotalMax) * 100 : 0;
-  
+
   const totalSubjectsAttemptedAcrossAllSemesters = new Set(marks.map(m => `${m.semester}-${m.subject}`)).size;
 
 
@@ -119,9 +118,9 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
         </CardDescription>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="p-6 border-b">
+        <div className="p-4 md:p-6 border-b">
             <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><Award className="text-accent"/>Overall Academic Summary</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-secondary/50 rounded-lg shadow">
                     <p className="text-sm text-muted-foreground flex items-center gap-1"><BookOpenCheck />Total Subject Instances</p>
                     <p className="text-2xl font-bold text-primary">{totalSubjectsAttemptedAcrossAllSemesters}</p>
@@ -138,8 +137,8 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
                 </div>
             </div>
         </div>
-        
-        <div className="p-6">
+
+        <div className="p-4 md:p-6">
           <h3 className="text-xl font-semibold mb-6 flex items-center gap-2">
             <CalendarDays className="text-primary" />
             Performance by Semester
@@ -148,40 +147,41 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
             <Accordion type="multiple" defaultValue={performanceBySemester.map(s => s.semester)} className="w-full">
               {performanceBySemester.map((semPerf) => (
                 <AccordionItem value={semPerf.semester} key={semPerf.semester}>
-                  <AccordionTrigger className="text-xl font-medium text-primary hover:no-underline py-4 px-2 rounded-md hover:bg-muted/50 transition-colors">
-                    <div className="flex justify-between w-full items-center">
+                  <AccordionTrigger className="text-lg md:text-xl font-medium text-primary hover:no-underline py-4 px-2 rounded-md hover:bg-muted/50 transition-colors">
+                    <div className="flex flex-col sm:flex-row justify-between w-full items-start sm:items-center gap-1 sm:gap-2">
                         <span>{semPerf.semester}</span>
-                        <Badge variant="outline" className="text-base px-3 py-1 border-accent text-accent">
+                        <Badge variant="outline" className="text-sm md:text-base px-2.5 md:px-3 py-1 border-accent text-accent mt-1 sm:mt-0">
                             Overall: {semPerf.totalSemesterObtained} / {semPerf.totalSemesterMax} ({semPerf.overallSemesterPercentage.toFixed(2)}%)
                         </Badge>
                     </div>
                   </AccordionTrigger>
-                  <AccordionContent className="pt-0 pb-4 px-2">
+                  <AccordionContent className="pt-0 pb-4 px-0 sm:px-2">
                     <div className="space-y-4 mt-2">
                         {semPerf.subjects.map(subjectPerf => (
                             <Card key={`${semPerf.semester}-${subjectPerf.subject}`} className="bg-card shadow-md hover:shadow-lg transition-shadow duration-300">
                                 <CardHeader className="pb-3 border-b bg-muted/20">
-                                    <CardTitle className="text-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                    <CardTitle className="text-base md:text-lg flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1 sm:gap-2">
                                     <span className="text-foreground/90">{subjectPerf.subject}</span>
-                                    <Badge variant="secondary" className="text-sm px-2.5 py-1">
+                                    <Badge variant="secondary" className="text-xs md:text-sm px-2 py-0.5 md:px-2.5 md:py-1 mt-1 sm:mt-0">
                                         Sub. Total: {subjectPerf.totalObtained} / {subjectPerf.totalMax} ({subjectPerf.percentage.toFixed(2)}%)
                                     </Badge>
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="pt-4">
+                                  <div className="overflow-x-auto">
                                     <Table>
-                                    <TableHeader>
+                                      <TableHeader>
                                         <TableRow>
-                                        <TableHead className="font-semibold text-foreground">Assessment Type</TableHead>
-                                        <TableHead className="text-right font-semibold text-foreground">Score</TableHead>
-                                        <TableHead className="text-right font-semibold text-foreground">Max Score</TableHead>
-                                        <TableHead className="text-right font-semibold text-foreground">Percentage</TableHead>
+                                          <TableHead className="font-semibold text-foreground min-w-[120px]">Assessment Type</TableHead>
+                                          <TableHead className="text-right font-semibold text-foreground min-w-[80px]">Score</TableHead>
+                                          <TableHead className="text-right font-semibold text-foreground min-w-[80px]">Max Score</TableHead>
+                                          <TableHead className="text-right font-semibold text-foreground min-w-[100px]">Percentage</TableHead>
                                         </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
+                                      </TableHeader>
+                                      <TableBody>
                                         {subjectPerf.components.map((mark) => (
                                         <TableRow key={mark.id} className="hover:bg-muted/10">
-                                            <TableCell><Badge variant="outline" className="border-foreground/30">{mark.assessmentType}</Badge></TableCell>
+                                            <TableCell><Badge variant="outline" className="border-foreground/30 text-xs md:text-sm">{mark.assessmentType}</Badge></TableCell>
                                             <TableCell className="text-right">{mark.score}</TableCell>
                                             <TableCell className="text-right">{mark.maxScore}</TableCell>
                                             <TableCell className="text-right font-medium text-primary/90">
@@ -189,8 +189,9 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
                                             </TableCell>
                                         </TableRow>
                                         ))}
-                                    </TableBody>
+                                      </TableBody>
                                     </Table>
+                                  </div>
                                 </CardContent>
                             </Card>
                         ))}

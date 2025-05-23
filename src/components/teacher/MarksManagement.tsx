@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -18,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark } from '@/lib/mockData';
+import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllAvailableSubjects } from '@/lib/mockData';
 import type { Mark, Student, User, AssessmentType, Semester } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
 import { PlusCircle, Edit2, Loader2, Search, GraduationCap, AlertCircle, Trash2, CalendarFold } from 'lucide-react';
@@ -35,15 +36,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from '@/contexts/AuthContext';
-import { Alert, AlertTitle as UIAlertTitle, AlertDescription as UIAlertDescription } from '@/components/ui/alert'; // Renamed imports
-import { FormField, FormItem } from '@/components/ui/form'; // Explicit import
+import { Alert, AlertTitle as UIAlertTitle, AlertDescription as UIAlertDescription } from '@/components/ui/alert';
+import { FormField, FormItem } from '@/components/ui/form';
 
 const assessmentTypes = Object.keys(ASSESSMENT_MAX_SCORES) as AssessmentType[];
 
 const studentSubjectMarksSchema = z.object({
   studentId: z.string().min(1, "Student PRN is required."),
   subject: z.string().min(1, "Subject is required."),
-  semester: z.string().min(1, "Semester is required."), // Added semester to schema
+  semester: z.string().min(1, "Semester is required."),
   scores: z.object({
     CA1: z.coerce.number().min(0, "Score must be non-negative.").max(ASSESSMENT_MAX_SCORES.CA1, `Max ${ASSESSMENT_MAX_SCORES.CA1}`).optional().nullable(),
     CA2: z.coerce.number().min(0, "Score must be non-negative.").max(ASSESSMENT_MAX_SCORES.CA2, `Max ${ASSESSMENT_MAX_SCORES.CA2}`).optional().nullable(),
@@ -57,8 +58,8 @@ interface AggregatedMarkEntry {
   studentId: string;
   studentName: string;
   subject: string;
-  semester: Semester; // Added semester
-  marks: Partial<Record<AssessmentType, Mark>>; 
+  semester: Semester;
+  marks: Partial<Record<AssessmentType, Mark>>;
 }
 
 
@@ -87,9 +88,8 @@ export function MarksManagement() {
   useEffect(() => {
     fetchInitialData();
   }, []);
-  
+
   useEffect(() => {
-    // Reset form when selectedWorkingSemester changes
     form.reset({
         studentId: '',
         subject: '',
@@ -102,58 +102,61 @@ export function MarksManagement() {
   async function fetchInitialData() {
     setIsLoading(true);
     try {
-      const [fetchedStudents, allStudentMarksFromMock] = await Promise.all([
-        getAllStudents(),
-        getAllStudents().then(stds => stds.reduce((acc, student) => acc.concat(student.marks.map(m => ({ ...m, studentName: student.name }))), [] as (Mark & { studentName?: string })[]))
+      const [fetchedStudents, allStudentMarksFromStore] = await Promise.all([
+        getAllStudents(), // Fetches students with their marks from Firestore
+        getAllStudents().then(stds => stds.reduce((acc, student) => {
+            // Ensure marks from student objects are also processed
+            const studentMarksWithInfo = student.marks.map(m => ({ ...m, studentName: student.name, studentId: student.id }));
+            return acc.concat(studentMarksWithInfo);
+        }, [] as (Mark & { studentName?: string; studentId: string })[]))
       ]);
       setStudents(fetchedStudents);
-      setAllMarks(allStudentMarksFromMock);
-      
-      // Set default working semester if available
+      setAllMarks(allStudentMarksFromStore);
+
       if (user?.semesterAssignments && user.semesterAssignments.length > 0) {
-        const sortedSemesters = [...user.semesterAssignments].sort((a, b) => b.semester.localeCompare(a.semester)); // Sort descending to get latest
+        const sortedSemesters = [...user.semesterAssignments].sort((a, b) => b.semester.localeCompare(a.semester));
         setSelectedWorkingSemester(sortedSemesters[0].semester);
         form.setValue('semester', sortedSemesters[0].semester);
       }
 
     } catch (error) {
-      toast({ title: "Error fetching data", description: "Could not load initial data.", variant: "destructive" });
+      console.error("Error fetching initial marks data:", error)
+      toast({ title: "Error fetching data", description: "Could not load initial marks and student data.", variant: "destructive" });
     }
     setIsLoading(false);
   }
 
   const teacherSemesters = useMemo(() => {
-    return user?.semesterAssignments?.map(sa => sa.semester).sort((a,b) => b.localeCompare(a)) || []; // Desc sort for dropdown
+    return user?.semesterAssignments?.map(sa => sa.semester).sort((a,b) => b.localeCompare(a)) || [];
   }, [user]);
 
   const subjectsForSelectedSemester = useMemo(() => {
     if (!selectedWorkingSemester || !user?.semesterAssignments) return [];
     const assignment = user.semesterAssignments.find(sa => sa.semester === selectedWorkingSemester);
-    return assignment?.subjects || [];
+    return assignment?.subjects.sort() || [];
   }, [selectedWorkingSemester, user]);
 
   const aggregatedStudentSubjectMarks = useMemo(() => {
     const grouped: Record<string, AggregatedMarkEntry> = {};
-    // Filter marks by selectedWorkingSemester before aggregation
-    const marksToProcess = selectedWorkingSemester 
-        ? allMarks.filter(mark => mark.semester === selectedWorkingSemester) 
-        : allMarks; // Or show all if no semester selected, though UI flow aims to always have one
+    const marksToProcess = selectedWorkingSemester
+        ? allMarks.filter(mark => mark.semester === selectedWorkingSemester)
+        : []; // Only process if a semester is selected
 
     marksToProcess.forEach(mark => {
-      const key = `${mark.studentId}-${mark.subject}-${mark.semester}`; // Include semester in key
+      const key = `${mark.studentId}-${mark.subject}-${mark.semester}`;
       if (!grouped[key]) {
         const student = students.find(s => s.id === mark.studentId);
         grouped[key] = {
           studentId: mark.studentId,
           studentName: student?.name || mark.studentName || 'N/A',
           subject: mark.subject,
-          semester: mark.semester, // Store semester
+          semester: mark.semester,
           marks: {},
         };
       }
       grouped[key].marks[mark.assessmentType] = mark;
     });
-    return Object.values(grouped);
+    return Object.values(grouped).sort((a,b) => a.studentName.localeCompare(b.studentName) || a.subject.localeCompare(b.subject));
   }, [allMarks, students, selectedWorkingSemester]);
 
   const filteredAggregatedMarks = useMemo(() => {
@@ -161,11 +164,10 @@ export function MarksManagement() {
     return aggregatedStudentSubjectMarks.filter(aggMark =>
       aggMark.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       aggMark.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      aggMark.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      aggMark.semester.toLowerCase().includes(searchTerm.toLowerCase())
+      aggMark.subject.toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [aggregatedStudentSubjectMarks, searchTerm]);
-  
+
   const isUserAuthorizedForSubjectInSemester = (subject: string, semester: string) => {
     if (!user?.semesterAssignments) return false;
     const semesterAssignment = user.semesterAssignments.find(sa => sa.semester === semester);
@@ -179,7 +181,7 @@ export function MarksManagement() {
         return;
     }
     if (subjectsForSelectedSemester.length === 0) {
-      toast({ title: "No Subjects Assigned", description: `You have no subjects assigned for ${selectedWorkingSemester}.`, variant: "destructive" });
+      toast({ title: "No Subjects Assigned", description: `You have no subjects assigned for ${selectedWorkingSemester}.`, variant: "default" });
       return;
     }
 
@@ -192,7 +194,7 @@ export function MarksManagement() {
       form.reset({
         studentId: aggMark.studentId,
         subject: aggMark.subject,
-        semester: aggMark.semester, // Set semester from aggMark
+        semester: aggMark.semester,
         scores: {
           CA1: aggMark.marks.CA1?.score ?? null,
           CA2: aggMark.marks.CA2?.score ?? null,
@@ -200,11 +202,11 @@ export function MarksManagement() {
           EndSem: aggMark.marks.EndSem?.score ?? null,
         }
       });
-    } else { // Adding new entry
+    } else {
       form.reset({
         studentId: '',
-        subject: subjectsForSelectedSemester[0] || '', // Default to first subject in selected semester
-        semester: selectedWorkingSemester, // Set current working semester
+        subject: subjectsForSelectedSemester[0] || '',
+        semester: selectedWorkingSemester,
         scores: { CA1: null, CA2: null, MidSem: null, EndSem: null },
       });
     }
@@ -212,7 +214,7 @@ export function MarksManagement() {
   };
 
   const onSubmit = async (data: StudentSubjectMarksFormData) => {
-     if (!isUserAuthorizedForSubjectInSemester(data.subject, data.semester)) { // data.semester comes from form
+     if (!isUserAuthorizedForSubjectInSemester(data.subject, data.semester)) {
         toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${data.subject} in ${data.semester}.`, variant: "destructive" });
         return;
     }
@@ -227,39 +229,38 @@ export function MarksManagement() {
 
       for (const type of assessmentTypes) {
         const score = data.scores[type];
-        // Use editingAggregatedMark if available, otherwise it's a new entry for this component
-        const existingMark = editingAggregatedMark?.marks[type] 
-            ? editingAggregatedMark.marks[type]
-            // If adding new, check allMarks for an existing component mark for this student-subject-semester-type
-            : allMarks.find(m => m.studentId === data.studentId && m.subject === data.subject && m.semester === data.semester && m.assessmentType === type);
+        const existingMarkForComponent = allMarks.find(m =>
+            m.studentId === data.studentId &&
+            m.subject === data.subject &&
+            m.semester === data.semester &&
+            m.assessmentType === type
+        );
 
-
-        if (score !== null && score !== undefined) { 
+        if (score !== null && score !== undefined) {
           const markPayload = {
             studentId: data.studentId,
             subject: data.subject,
             assessmentType: type,
             score: score,
             maxScore: ASSESSMENT_MAX_SCORES[type],
-            semester: data.semester, // Ensure semester from form is used
+            semester: data.semester,
           };
-          if (existingMark) {
-            if (existingMark.score !== score || existingMark.semester !== data.semester) { // also check if semester changed (should not if UI is correct)
-              await apiUpdateMark({ ...existingMark, ...markPayload });
+          if (existingMarkForComponent) {
+            if (existingMarkForComponent.score !== score) {
+              await apiUpdateMark({ ...existingMarkForComponent, ...markPayload });
             }
           } else {
             await apiAddMark(markPayload);
           }
-        } else if (existingMark) { 
-          await apiDeleteMark(existingMark.id);
+        } else if (existingMarkForComponent) {
+          await apiDeleteMark(existingMarkForComponent.id);
         }
       }
 
       toast({ title: "Marks Saved", description: `Marks for ${student.name} in ${data.subject} (${data.semester}) have been updated.` });
-      await fetchInitialData(); // Refetch all data to update table
-      // Ensure selectedWorkingSemester remains, or re-evaluate if necessary
+      await fetchInitialData();
       if (selectedWorkingSemester && !teacherSemesters.includes(selectedWorkingSemester)) {
-          setSelectedWorkingSemester(teacherSemesters[0] || null); // Fallback if current semester gone
+          setSelectedWorkingSemester(teacherSemesters[0] || null);
       }
       setIsSheetOpen(false);
     } catch (error) {
@@ -268,7 +269,7 @@ export function MarksManagement() {
     }
     setIsSubmitting(false);
   };
-  
+
   const handleDeleteAllMarksForEntry = async (entry: AggregatedMarkEntry) => {
     if (!isUserAuthorizedForSubjectInSemester(entry.subject, entry.semester)) {
       toast({ title: "Unauthorized", description: `You are not authorized to delete marks for ${entry.subject} in ${entry.semester}.`, variant: "destructive" });
@@ -294,7 +295,7 @@ export function MarksManagement() {
   };
 
 
-  if (isLoading && !selectedWorkingSemester) { // Adjusted loading condition
+  if (isLoading && !selectedWorkingSemester) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading initial data...</span></div>;
   }
 
@@ -306,10 +307,10 @@ export function MarksManagement() {
             <CardTitle className="text-2xl">Consolidated Marks Management</CardTitle>
             <CardDescription>View, add, or edit all assessment components for a student in a specific subject and semester.</CardDescription>
           </div>
-          <Button 
-            onClick={() => handleOpenSheet(null)} 
-            className="bg-primary hover:bg-primary/90 text-primary-foreground" 
-            disabled={!selectedWorkingSemester || subjectsForSelectedSemester.length === 0}
+          <Button
+            onClick={() => handleOpenSheet(null)}
+            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            disabled={!selectedWorkingSemester || subjectsForSelectedSemester.length === 0 || isSubmitting}
           >
             <PlusCircle className="mr-2 h-4 w-4" /> Add/Edit Student Marks
           </Button>
@@ -321,9 +322,8 @@ export function MarksManagement() {
             value={selectedWorkingSemester || ""}
             onValueChange={(value) => {
               setSelectedWorkingSemester(value);
-              // form.setValue('semester', value); // Set semester in form as well
             }}
-            disabled={teacherSemesters.length === 0}
+            disabled={teacherSemesters.length === 0 || isSubmitting}
           >
             <SelectTrigger id="working-semester-select" className="w-full md:w-1/2 lg:w-1/3 mt-1">
               <SelectValue placeholder={teacherSemesters.length > 0 ? "Choose a semester..." : "No semesters assigned"} />
@@ -375,7 +375,7 @@ export function MarksManagement() {
                 <p className="mt-2">Please select a working semester to manage marks.</p>
             </div>
         )}
-        {isLoading && selectedWorkingSemester && ( // Show loader only if semester is selected and still loading marks
+        {isLoading && selectedWorkingSemester && (
             <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading marks for {selectedWorkingSemester}...</span></div>
         )}
 
@@ -395,13 +395,11 @@ export function MarksManagement() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Student PRN</TableHead>
-                  <TableHead>Student Name</TableHead>
-                  <TableHead>Subject</TableHead>
-                  {/* Semester column can be removed if all data is for selectedWorkingSemester */}
-                  {/* <TableHead>Semester</TableHead> */}
-                  {assessmentTypes.map(type => <TableHead key={type} className="text-right">{type} ({ASSESSMENT_MAX_SCORES[type]})</TableHead>)}
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead className="min-w-[120px]">Student PRN</TableHead>
+                  <TableHead className="min-w-[180px]">Student Name</TableHead>
+                  <TableHead className="min-w-[150px]">Subject</TableHead>
+                  {assessmentTypes.map(type => <TableHead key={type} className="text-right min-w-[100px]">{type} ({ASSESSMENT_MAX_SCORES[type]})</TableHead>)}
+                  <TableHead className="text-right min-w-[180px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -412,13 +410,12 @@ export function MarksManagement() {
                       <TableCell>{aggMark.studentId}</TableCell>
                       <TableCell>{aggMark.studentName}</TableCell>
                       <TableCell>{aggMark.subject}</TableCell>
-                      {/* <TableCell>{aggMark.semester}</TableCell> */}
                       {assessmentTypes.map(type => (
                         <TableCell key={type} className="text-right">
                           {aggMark.marks[type]?.score ?? '-'}
                         </TableCell>
                       ))}
-                      <TableCell className="text-right space-x-2">
+                      <TableCell className="text-right space-x-1 md:space-x-2">
                         <Button variant="outline" size="sm" onClick={() => handleOpenSheet(aggMark)} className="hover:text-accent hover:border-accent" disabled={!canEditOrDelete || isSubmitting}>
                           <Edit2 className="mr-1 h-3 w-3" /> Edit
                         </Button>
@@ -462,10 +459,9 @@ export function MarksManagement() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4">
-             {/* Semester is now part of the form and set by selectedWorkingSemester */}
              <input type="hidden" {...form.register("semester")} />
 
-            {!editingAggregatedMark && ( // Only show student/subject selection when adding new
+            {!editingAggregatedMark && (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -517,7 +513,7 @@ export function MarksManagement() {
                 />
               </div>
             )}
-            
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t">
                 {assessmentTypes.map((type) => (
                     <FormField

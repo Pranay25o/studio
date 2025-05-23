@@ -16,7 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Users, Search, Users2 as UsersIcon } from 'lucide-react'; // Added Users2 icon
+import { Loader2, Users, Search, Users2 as UsersIcon } from 'lucide-react';
 
 export function UserListTable() {
   const [users, setUsers] = useState<User[]>([]);
@@ -31,7 +31,7 @@ export function UserListTable() {
   async function fetchUsers() {
     setIsLoading(true);
     try {
-      const fetchedUsers = await getAllUsers(); 
+      const fetchedUsers = await getAllUsers();
       setUsers(fetchedUsers);
     } catch (error) {
       toast({ title: "Error fetching users", description: "Could not load user data.", variant: "destructive" });
@@ -77,7 +77,7 @@ export function UserListTable() {
                 <Users className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-2 text-sm font-medium text-foreground">No users found {searchTerm && `for "${searchTerm}"`}</h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {searchTerm ? "Try a different search term." : "User data will appear here. Ensure mock data includes users."}
+                  {searchTerm ? "Try a different search term." : "User data will appear here. Ensure users are registered in Firestore."}
                 </p>
             </div>
         ) : (
@@ -85,11 +85,11 @@ export function UserListTable() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[100px]">User ID</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead className="text-center">Role</TableHead>
-                  <TableHead>Details (PRN/Subjects)</TableHead>
+                  <TableHead className="w-[100px] min-w-[100px]">User ID</TableHead>
+                  <TableHead className="min-w-[150px]">Name</TableHead>
+                  <TableHead className="min-w-[200px]">Email</TableHead>
+                  <TableHead className="text-center min-w-[100px]">Role</TableHead>
+                  <TableHead className="min-w-[200px]">Details (PRN/Subjects)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -99,9 +99,9 @@ export function UserListTable() {
                     <TableCell>{user.name}</TableCell>
                     <TableCell>{user.email}</TableCell>
                     <TableCell className="text-center">
-                      <Badge 
+                      <Badge
                         variant={
-                          user.role === 'admin' ? 'destructive' : 
+                          user.role === 'admin' ? 'destructive' :
                           user.role === 'teacher' ? 'secondary' : 'default'
                         }
                         className="capitalize"
@@ -111,8 +111,11 @@ export function UserListTable() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {user.role === 'student' && user.prn ? `PRN: ${user.prn}` : ''}
-                      {user.role === 'teacher' && user.subjects && user.subjects.length > 0 ? `Subjects: ${user.subjects.join(', ')}` : user.role === 'teacher' ? 'No subjects assigned' : ''}
-                      {user.role === 'admin' && <span className="italic">N/A</span>}
+                      {(user.role === 'teacher' || user.role === 'admin') && user.subjects && user.subjects.length > 0 ? `Gen. Subjects: ${user.subjects.join(', ')}` : (user.role === 'teacher' || user.role === 'admin') ? 'No general subjects' : ''}
+                      {(user.role === 'teacher' || user.role === 'admin') && user.semesterAssignments && user.semesterAssignments.length > 0 ? 
+                        user.semesterAssignments.map(sa => ` (${sa.semester}: ${sa.subjects.join(', ') || 'None'})`).join('; ')
+                        : ''
+                      }
                     </TableCell>
                   </TableRow>
                 ))}
