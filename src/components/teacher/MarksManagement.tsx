@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -54,7 +55,7 @@ const markSchema = z.object({
 type MarkFormData = z.infer<typeof markSchema>;
 
 export function MarksManagement() {
-  const { user } = useAuth(); // Get current user
+  const { user } = useAuth(); 
   const [students, setStudents] = useState<Student[]>([]);
   const [allMarks, setAllMarks] = useState<Mark[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -64,8 +65,8 @@ export function MarksManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
 
-  const teacherSubjects = useMemo(() => user?.subjects || [], [user]);
-  const canManageAnySubject = teacherSubjects.length > 0;
+  const userManagedSubjects = useMemo(() => user?.subjects || [], [user]);
+  const canManageAnySubject = userManagedSubjects.length > 0;
 
   const { control, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<MarkFormData>({
     resolver: zodResolver(markSchema),
@@ -80,6 +81,13 @@ export function MarksManagement() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    // Set default subject if user has subjects and form is opened for adding new mark
+    if (!editingMark && canManageAnySubject && userManagedSubjects[0]) {
+      setValue('subject', userManagedSubjects[0]);
+    }
+  }, [isDialogOpen, editingMark, canManageAnySubject, userManagedSubjects, setValue]);
+
   async function fetchData() {
     setIsLoading(true);
     try {
@@ -93,8 +101,8 @@ export function MarksManagement() {
     setIsLoading(false);
   }
 
-  const isTeacherAuthorizedForSubject = (subject: string) => {
-    return teacherSubjects.includes(subject);
+  const isUserAuthorizedForSubject = (subject: string) => {
+    return userManagedSubjects.includes(subject);
   };
 
   const handleAddMark = () => {
@@ -103,12 +111,12 @@ export function MarksManagement() {
       return;
     }
     setEditingMark(null);
-    reset({ studentId: '', subject: teacherSubjects[0] || '', score: 0, maxScore: 100, term: '', grade: '' });
+    reset({ studentId: '', subject: userManagedSubjects[0] || '', score: 0, maxScore: 100, term: '', grade: '' });
     setIsDialogOpen(true);
   };
 
   const handleEditMark = (mark: Mark) => {
-    if (!isTeacherAuthorizedForSubject(mark.subject)) {
+    if (!isUserAuthorizedForSubject(mark.subject)) {
         toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${mark.subject}.`, variant: "destructive" });
         return;
     }
@@ -125,7 +133,7 @@ export function MarksManagement() {
   };
 
   const handleDeleteMark = async (mark: Mark) => {
-    if (!isTeacherAuthorizedForSubject(mark.subject)) {
+    if (!isUserAuthorizedForSubject(mark.subject)) {
         toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${mark.subject}.`, variant: "destructive" });
         return;
     }
@@ -141,7 +149,7 @@ export function MarksManagement() {
   };
 
   const onSubmit = async (data: MarkFormData) => {
-    if (!isTeacherAuthorizedForSubject(data.subject)) {
+    if (!isUserAuthorizedForSubject(data.subject)) {
         toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${data.subject}.`, variant: "destructive" });
         return;
     }
@@ -167,7 +175,7 @@ export function MarksManagement() {
       toast({ title: "Missing Information", description: "Please select a student, subject, and enter max score.", variant: "destructive" });
       return;
     }
-    if (!isTeacherAuthorizedForSubject(currentSubject)) {
+    if (!isUserAuthorizedForSubject(currentSubject)) {
         toast({ title: "Unauthorized", description: `You are not authorized to suggest marks for ${currentSubject}.`, variant: "destructive" });
         return;
     }
@@ -190,13 +198,22 @@ export function MarksManagement() {
   };
 
   const filteredMarks = useMemo(() => {
-    if (!searchTerm) return allMarks;
-    return allMarks.filter(mark =>
+    let marksToFilter = allMarks;
+    // If user is not admin, filter marks by subjects they manage
+    // Admins by default see all marks, unless we want to change this.
+    // For now, if admin has specific subjects assigned, they might prefer to see only those by default.
+    // However, the original request was to manage marks *like a teacher* if subjects are assigned.
+    // Let's keep it simple: if subjects are assigned, they act on those. If not, they act on none (unless we give them full override).
+    // The authorization checks (`isUserAuthorizedForSubject`) handle the actual ability to edit/delete/add.
+    // The search filter is separate.
+
+    if (!searchTerm) return marksToFilter;
+    return marksToFilter.filter(mark =>
       mark.studentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       mark.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
       mark.subject.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [allMarks, searchTerm]);
+  }, [allMarks, searchTerm, user]);
 
   if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading marks data...</span></div>;
@@ -214,12 +231,12 @@ export function MarksManagement() {
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Mark
           </Button>
         </div>
-        {!canManageAnySubject && user?.role === 'teacher' && (
+        {(user?.role === 'teacher' || user?.role === 'admin') && !canManageAnySubject && (
           <Alert variant="destructive" className="mt-4">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>No Subjects Assigned</AlertTitle>
             <AlertDescription>
-              You are not currently assigned to manage marks for any subjects. Please contact an administrator.
+              You are not currently assigned to manage marks for any subjects. {user?.role === 'admin' && "As an admin, you can assign subjects to yourself via 'User Subject Management'."}
             </AlertDescription>
           </Alert>
         )}
@@ -266,7 +283,7 @@ export function MarksManagement() {
           </TableHeader>
           <TableBody>
             {filteredMarks.map((mark) => {
-              const canEditOrDelete = isTeacherAuthorizedForSubject(mark.subject);
+              const canEditOrDelete = isUserAuthorizedForSubject(mark.subject);
               return (
               <TableRow key={mark.id}>
                 <TableCell>{mark.studentId}</TableCell>
@@ -366,12 +383,12 @@ export function MarksManagement() {
                   <div className="space-y-1">
                     <Label htmlFor="subject">Subject</Label>
                     {canManageAnySubject ? (
-                      <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark && !isTeacherAuthorizedForSubject(editingMark.subject)}>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark && !isUserAuthorizedForSubject(editingMark.subject)}>
                         <SelectTrigger id="subject" className="w-full">
                           <SelectValue placeholder="Select Subject" />
                         </SelectTrigger>
                         <SelectContent>
-                          {teacherSubjects.map(subject => (
+                          {userManagedSubjects.map(subject => (
                             <SelectItem key={subject} value={subject}>
                               {subject}
                             </SelectItem>
@@ -422,7 +439,7 @@ export function MarksManagement() {
               variant="outline" 
               onClick={handleSuggestMarks} 
               className="w-full" 
-              disabled={isSubmitting || !currentStudentId || !currentSubject || !currentMaxScore || !canManageAnySubject || !isTeacherAuthorizedForSubject(currentSubject)}
+              disabled={isSubmitting || !currentStudentId || !currentSubject || !currentMaxScore || !canManageAnySubject || !isUserAuthorizedForSubject(currentSubject)}
             >
               {isSubmitting && watch('score') === undefined ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Lightbulb className="mr-2 h-4 w-4" />}
               Suggest Marks (AI)
@@ -433,7 +450,7 @@ export function MarksManagement() {
             </DialogClose>
             <Button 
               type="submit" 
-              disabled={isSubmitting || !canManageAnySubject || (currentSubject && !isTeacherAuthorizedForSubject(currentSubject))} 
+              disabled={isSubmitting || !canManageAnySubject || (currentSubject && !isUserAuthorizedForSubject(currentSubject))} 
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (editingMark ? 'Save Changes' : 'Add Mark')}

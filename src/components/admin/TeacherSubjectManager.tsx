@@ -5,7 +5,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { getAllTeachers, assignSubjectsToTeacher as apiAssignSubjectsToTeacher } from '@/lib/mockData';
+import { getAllUsers, assignSubjectsToTeacher as apiAssignSubjectsToTeacher } from '@/lib/mockData';
 import type { User } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -17,58 +17,61 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, BookLock, UserCog, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Example: A predefined list of subjects available in the school/system
 const ALL_AVAILABLE_SUBJECTS = [
-  "Mathematics", "Physics", "Chemistry", "Biology", "History", "Geography", 
+  "Mathematics", "Physics", "Chemistry", "Biology", "History", "Geography",
   "English Literature", "Computer Science", "Art", "Music", "Physical Education", "Advanced Physics"
 ].sort();
 
 
 const subjectAssignmentSchema = z.object({
-  teacherId: z.string().min(1, "Teacher selection is required."),
-  subjects: z.array(z.string()), 
+  userId: z.string().min(1, "User selection is required."), // Renamed from teacherId for clarity
+  subjects: z.array(z.string()),
 });
 
 type SubjectAssignmentFormData = z.infer<typeof subjectAssignmentSchema>;
 
 export function TeacherSubjectManager() {
-  const [teachers, setTeachers] = useState<User[]>([]);
+  const { user: loggedInUser } = useAuth();
+  const [assignableUsers, setAssignableUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [selectedTeacher, setSelectedTeacher] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const { toast } = useToast();
 
   const { control, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<SubjectAssignmentFormData>({
     resolver: zodResolver(subjectAssignmentSchema),
-    defaultValues: { teacherId: '', subjects: [] },
+    defaultValues: { userId: '', subjects: [] },
   });
 
-  const watchedTeacherId = watch('teacherId');
+  const watchedUserId = watch('userId');
   const watchedSubjects = watch('subjects');
 
   useEffect(() => {
-    fetchTeachers();
+    fetchUsersForAssignment();
   }, []);
 
   useEffect(() => {
-    if (watchedTeacherId) {
-      const teacher = teachers.find(t => t.id === watchedTeacherId);
-      setSelectedTeacher(teacher || null);
-      setValue('subjects', teacher?.subjects || []);
+    if (watchedUserId) {
+      const user = assignableUsers.find(u => u.id === watchedUserId);
+      setSelectedUser(user || null);
+      setValue('subjects', user?.subjects || []);
     } else {
-      setSelectedTeacher(null);
+      setSelectedUser(null);
       setValue('subjects', []);
     }
-  }, [watchedTeacherId, teachers, setValue]);
+  }, [watchedUserId, assignableUsers, setValue]);
 
-  async function fetchTeachers() {
+  async function fetchUsersForAssignment() {
     setIsLoading(true);
     try {
-      const fetchedTeachers = await getAllTeachers();
-      setTeachers(fetchedTeachers);
+      const allUsers = await getAllUsers();
+      // Admins can assign subjects to teachers or themselves (other admins)
+      setAssignableUsers(allUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
     } catch (error) {
-      toast({ title: "Error fetching teachers", description: "Could not load teacher data.", variant: "destructive" });
+      toast({ title: "Error fetching users", description: "Could not load user data.", variant: "destructive" });
     }
     setIsLoading(false);
   }
@@ -76,18 +79,18 @@ export function TeacherSubjectManager() {
   const onSubmit = async (data: SubjectAssignmentFormData) => {
     setIsSubmitting(true);
     try {
-      await apiAssignSubjectsToTeacher(data.teacherId, data.subjects);
-      toast({ title: "Subjects Updated", description: `Subjects for ${selectedTeacher?.name} have been updated.` });
-      // Refresh teacher list to show updated subjects by re-fetching
-      // or by updating the local state if preferred for performance
-      const updatedTeachers = teachers.map(t => 
-        t.id === data.teacherId ? { ...t, subjects: data.subjects } : t
+      await apiAssignSubjectsToTeacher(data.userId, data.subjects);
+      const targetUserName = selectedUser?.id === loggedInUser?.id ? "Your" : `${selectedUser?.name}'s`;
+      toast({ title: "Subjects Updated", description: `${targetUserName} subjects have been updated.` });
+
+      const updatedUsers = assignableUsers.map(u =>
+        u.id === data.userId ? { ...u, subjects: data.subjects } : u
       );
-      setTeachers(updatedTeachers);
-      setSelectedTeacher(updatedTeachers.find(t => t.id === data.teacherId) || null);
+      setAssignableUsers(updatedUsers);
+      setSelectedUser(updatedUsers.find(u => u.id === data.userId) || null);
 
     } catch (error) {
-      toast({ title: "Error Updating Subjects", description: "Could not update teacher subjects.", variant: "destructive" });
+      toast({ title: "Error Updating Subjects", description: "Could not update user subjects.", variant: "destructive" });
     }
     setIsSubmitting(false);
   };
@@ -104,22 +107,22 @@ export function TeacherSubjectManager() {
   };
 
   if (isLoading) {
-    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading teacher data...</span></div>;
+    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading user data...</span></div>;
   }
-  
-  if (teachers.length === 0 && !isLoading) {
+
+  if (assignableUsers.length === 0 && !isLoading) {
     return (
         <Card className="shadow-xl w-full max-w-2xl mx-auto">
             <CardHeader>
-                <CardTitle className="text-2xl flex items-center gap-2"><UserCog className="h-6 w-6 text-primary" /> Teacher Subject Management</CardTitle>
-                <CardDescription>Assign or modify subjects for teachers.</CardDescription>
+                <CardTitle className="text-2xl flex items-center gap-2"><UserCog className="h-6 w-6 text-primary" /> User Subject Management</CardTitle>
+                <CardDescription>Assign or modify subjects for teachers or administrators.</CardDescription>
             </CardHeader>
             <CardContent>
                 <Alert variant="default">
                     <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>No Teachers Found</AlertTitle>
+                    <AlertTitle>No Assignable Users Found</AlertTitle>
                     <AlertDescription>
-                        There are no teachers in the system to manage. Ensure teachers are added via mock data or a user creation process.
+                        There are no teachers or administrators in the system to manage.
                     </AlertDescription>
                 </Alert>
             </CardContent>
@@ -131,38 +134,39 @@ export function TeacherSubjectManager() {
     <Card className="w-full max-w-2xl mx-auto shadow-xl">
       <CardHeader>
         <CardTitle className="text-2xl flex items-center gap-2">
-            <UserCog className="h-6 w-6 text-primary" /> Teacher Subject Management
+            <UserCog className="h-6 w-6 text-primary" /> User Subject Management
         </CardTitle>
-        <CardDescription>Select a teacher to assign or modify their academic subjects.</CardDescription>
+        <CardDescription>Select a teacher or administrator to assign or modify their academic subjects. Administrators can assign subjects to themselves.</CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit(onSubmit)}>
         <CardContent className="space-y-6">
           <Controller
-            name="teacherId"
+            name="userId"
             control={control}
             render={({ field }) => (
               <div className="space-y-1">
-                <Label htmlFor="teacherId">Select Teacher</Label>
+                <Label htmlFor="userId">Select User (Teacher or Admin)</Label>
                 <Select onValueChange={field.onChange} value={field.value}>
-                  <SelectTrigger id="teacherId" className="w-full">
-                    <SelectValue placeholder="Choose a teacher..." />
+                  <SelectTrigger id="userId" className="w-full">
+                    <SelectValue placeholder="Choose a user..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {teachers.map(teacher => (
-                      <SelectItem key={teacher.id} value={teacher.id}>
-                        {teacher.name} ({teacher.email})
+                    {assignableUsers.map(user => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.name} ({user.email}) - <span className="capitalize text-muted-foreground">{user.role}</span>
+                        {user.id === loggedInUser?.id && <span className="text-accent font-semibold"> (Yourself)</span>}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {errors.teacherId && <p className="text-sm text-destructive">{errors.teacherId.message}</p>}
+                {errors.userId && <p className="text-sm text-destructive">{errors.userId.message}</p>}
               </div>
             )}
           />
 
-          {selectedTeacher && (
+          {selectedUser && (
             <div>
-              <Label className="mb-2 block font-medium">Assign Subjects for: <span className="text-accent">{selectedTeacher.name}</span></Label>
+              <Label className="mb-2 block font-medium">Assign Subjects for: <span className="text-accent">{selectedUser.name}</span></Label>
               <ScrollArea className="h-72 w-full rounded-md border p-4 bg-background/50">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
                 {ALL_AVAILABLE_SUBJECTS.map(subject => (
@@ -184,7 +188,7 @@ export function TeacherSubjectManager() {
           )}
         </CardContent>
         <CardFooter>
-          <Button type="submit" disabled={isSubmitting || !selectedTeacher} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button type="submit" disabled={isSubmitting || !selectedUser} className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
             {isSubmitting ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (

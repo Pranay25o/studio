@@ -199,10 +199,48 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <SidebarMenuButton
           asChild
           isActive={pathname.startsWith("/admin/manage-teacher-subjects")}
-          tooltip="Teacher Subjects"
+          tooltip="User Subjects"
         >
           <Link href="/admin/manage-teacher-subjects">
-            <BookLock /> <span>Teacher Subjects</span>
+            <BookLock /> <span>User Subjects</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarSeparator className="my-1" />
+      {/* Admin access to teacher-like functionalities */}
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname === "/teacher/manage-marks"} // Keep teacher path for component reuse
+          tooltip="Manage Marks (Admin)"
+        >
+          <Link href="/teacher/manage-marks"> 
+            <ClipboardEdit />
+            <span>Manage Marks</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname === "/teacher/grade-anomaly"} // Keep teacher path
+          tooltip="Grade Anomaly (Admin)"
+        >
+          <Link href="/teacher/grade-anomaly">
+            <AlertTriangle />
+            <span>Grade Anomaly</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname === "/teacher/manage-students"} // Keep teacher path
+          tooltip="Manage Students (Admin)"
+        >
+          <Link href="/teacher/manage-students">
+            <PencilLine />
+            <span>Manage Students</span>
           </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>
