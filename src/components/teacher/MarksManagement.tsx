@@ -20,10 +20,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllAvailableSubjects } from '@/lib/mockData';
-import type { Mark, Student, MarksSuggestionInput, User, AssessmentType } from '@/types';
+import type { Mark, Student, User, AssessmentType } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
-import { generateMarksSuggestions } from '@/ai/flows/generate-marks-suggestions';
-import { PlusCircle, Edit2, Trash2, Lightbulb, Loader2, Search, GraduationCap, AlertCircle } from 'lucide-react';
+import { PlusCircle, Edit2, Loader2, Search, GraduationCap, AlertCircle, Trash2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import {
@@ -42,230 +41,204 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 const assessmentTypes = Object.keys(ASSESSMENT_MAX_SCORES) as AssessmentType[];
 
-const markSchema = z.object({
+// Schema for the new dialog form managing all components
+const studentSubjectMarksSchema = z.object({
   studentId: z.string().min(1, "Student PRN is required."),
   subject: z.string().min(1, "Subject is required."),
-  assessmentType: z.enum(assessmentTypes, { required_error: "Assessment type is required." }),
-  score: z.coerce.number().min(0, "Score must be non-negative."),
-  maxScore: z.coerce.number().min(1, "Max score must be at least 1."), // Will be validated against assessment type
-}).refine(data => {
-  if (data.assessmentType) {
-    return data.maxScore === ASSESSMENT_MAX_SCORES[data.assessmentType];
-  }
-  return true;
-}, {
-  message: "Max score does not match the selected assessment type.",
-  path: ["maxScore"],
-}).refine(data => data.score <= data.maxScore, {
-  message: "Score cannot exceed max score.",
-  path: ["score"],
+  scores: z.object({
+    CA1: z.coerce.number().min(0, "Score must be non-negative.").max(ASSESSMENT_MAX_SCORES.CA1, `Max ${ASSESSMENT_MAX_SCORES.CA1}`).optional().nullable(),
+    CA2: z.coerce.number().min(0, "Score must be non-negative.").max(ASSESSMENT_MAX_SCORES.CA2, `Max ${ASSESSMENT_MAX_SCORES.CA2}`).optional().nullable(),
+    MidSem: z.coerce.number().min(0, "Score must be non-negative.").max(ASSESSMENT_MAX_SCORES.MidSem, `Max ${ASSESSMENT_MAX_SCORES.MidSem}`).optional().nullable(),
+    EndSem: z.coerce.number().min(0, "Score must be non-negative.").max(ASSESSMENT_MAX_SCORES.EndSem, `Max ${ASSESSMENT_MAX_SCORES.EndSem}`).optional().nullable(),
+  }),
 });
+type StudentSubjectMarksFormData = z.infer<typeof studentSubjectMarksSchema>;
 
-type MarkFormData = z.infer<typeof markSchema>;
+interface AggregatedMarkEntry {
+  studentId: string;
+  studentName: string;
+  subject: string;
+  marks: Partial<Record<AssessmentType, Mark>>; // Store the full Mark object for updates/deletes
+}
+
 
 export function MarksManagement() {
-  const { user } = useAuth(); 
+  const { user } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
-  const [allMarks, setAllMarks] = useState<(Mark & {studentName?: string})[]>([]);
+  const [allMarks, setAllMarks] = useState<(Mark & { studentName?: string })[]>([]);
   const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editingMark, setEditingMark] = useState<Mark | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [editingAggregatedMark, setEditingAggregatedMark] = useState<AggregatedMarkEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
 
   const userManagedSubjects = useMemo(() => user?.subjects || [], [user]);
   const canManageAnySubject = userManagedSubjects.length > 0;
 
-  const { control, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<MarkFormData>({
-    resolver: zodResolver(markSchema),
-    defaultValues: { 
-      studentId: '', 
-      subject: '', 
-      assessmentType: assessmentTypes[0], 
-      score: 0, 
-      maxScore: ASSESSMENT_MAX_SCORES[assessmentTypes[0]],
+  const form = useForm<StudentSubjectMarksFormData>({
+    resolver: zodResolver(studentSubjectMarksSchema),
+    defaultValues: {
+      studentId: '',
+      subject: '',
+      scores: { CA1: null, CA2: null, MidSem: null, EndSem: null },
     },
   });
-
-  const currentStudentId = watch('studentId');
-  const currentSubject = watch('subject');
-  const currentAssessmentType = watch('assessmentType');
 
   useEffect(() => {
     fetchInitialData();
   }, []);
-  
+
   async function fetchInitialData() {
     setIsLoading(true);
     try {
       const [fetchedStudents, fetchedSubjects, allStudentMarks] = await Promise.all([
         getAllStudents(),
         getAllAvailableSubjects(),
-        getAllStudents().then(stds => stds.reduce((acc, student) => acc.concat(student.marks.map(m => ({...m, studentName: student.name}))), [] as (Mark & {studentName?: string})[]))
+        getAllStudents().then(stds => stds.reduce((acc, student) => acc.concat(student.marks.map(m => ({ ...m, studentName: student.name }))), [] as (Mark & { studentName?: string })[]))
       ]);
       setStudents(fetchedStudents);
       setSystemSubjects(fetchedSubjects);
       setAllMarks(allStudentMarks);
-
-      if (!editingMark && canManageAnySubject && userManagedSubjects[0]) {
-        setValue('subject', userManagedSubjects[0]);
-      }
-      setValue('assessmentType', assessmentTypes[0]);
-      setValue('maxScore', ASSESSMENT_MAX_SCORES[assessmentTypes[0]]);
-
+      setIsLoading(false);
     } catch (error) {
-      toast({ title: "Error fetching data", description: "Could not load initial data for marks management.", variant: "destructive" });
+      toast({ title: "Error fetching data", description: "Could not load initial data.", variant: "destructive" });
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }
 
-  useEffect(() => {
-    if (currentAssessmentType) {
-      setValue('maxScore', ASSESSMENT_MAX_SCORES[currentAssessmentType]);
-    }
-  }, [currentAssessmentType, setValue]);
-
-
-  useEffect(() => {
-    // Set default subject and assessment type if user has subjects and form is opened for adding new mark
-    if (isDialogOpen && !editingMark) {
-      if (canManageAnySubject && userManagedSubjects[0]) {
-        setValue('subject', userManagedSubjects[0]);
+  const aggregatedStudentSubjectMarks = useMemo(() => {
+    const grouped: Record<string, AggregatedMarkEntry> = {};
+    allMarks.forEach(mark => {
+      const key = `${mark.studentId}-${mark.subject}`;
+      if (!grouped[key]) {
+        const student = students.find(s => s.id === mark.studentId);
+        grouped[key] = {
+          studentId: mark.studentId,
+          studentName: student?.name || mark.studentName || 'N/A',
+          subject: mark.subject,
+          marks: {},
+        };
       }
-      const defaultAssessmentType = assessmentTypes[0];
-      setValue('assessmentType', defaultAssessmentType);
-      setValue('maxScore', ASSESSMENT_MAX_SCORES[defaultAssessmentType]);
-      setValue('score', 0); // Reset score
-    }
-  }, [isDialogOpen, editingMark, canManageAnySubject, userManagedSubjects, setValue]);
+      grouped[key].marks[mark.assessmentType] = mark;
+    });
+    return Object.values(grouped);
+  }, [allMarks, students]);
+
+  const filteredAggregatedMarks = useMemo(() => {
+    if (!searchTerm) return aggregatedStudentSubjectMarks;
+    return aggregatedStudentSubjectMarks.filter(aggMark =>
+      aggMark.studentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      aggMark.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      aggMark.subject.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [aggregatedStudentSubjectMarks, searchTerm]);
 
   const isUserAuthorizedForSubject = (subject: string) => {
     return userManagedSubjects.includes(subject);
   };
 
-  const handleAddMark = () => {
-    if (!canManageAnySubject) {
+  const handleOpenSheet = (aggMark: AggregatedMarkEntry | null = null) => {
+    if (!canManageAnySubject && !aggMark) {
       toast({ title: "Unauthorized", description: "You are not assigned to manage any subjects.", variant: "destructive" });
       return;
     }
-    setEditingMark(null);
-    const defaultAT = assessmentTypes[0];
-    reset({ 
-      studentId: '', 
-      subject: userManagedSubjects[0] || '', 
-      assessmentType: defaultAT, 
-      score: 0, 
-      maxScore: ASSESSMENT_MAX_SCORES[defaultAT],
-    });
-    setIsDialogOpen(true);
+    setEditingAggregatedMark(aggMark);
+    if (aggMark) {
+      if (!isUserAuthorizedForSubject(aggMark.subject)) {
+         toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${aggMark.subject}.`, variant: "destructive" });
+         return;
+      }
+      form.reset({
+        studentId: aggMark.studentId,
+        subject: aggMark.subject,
+        scores: {
+          CA1: aggMark.marks.CA1?.score ?? null,
+          CA2: aggMark.marks.CA2?.score ?? null,
+          MidSem: aggMark.marks.MidSem?.score ?? null,
+          EndSem: aggMark.marks.EndSem?.score ?? null,
+        }
+      });
+    } else {
+      form.reset({
+        studentId: '',
+        subject: userManagedSubjects[0] || '',
+        scores: { CA1: null, CA2: null, MidSem: null, EndSem: null },
+      });
+    }
+    setIsSheetOpen(true);
   };
 
-  const handleEditMark = (mark: Mark) => {
-    if (!isUserAuthorizedForSubject(mark.subject)) {
-        toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${mark.subject}.`, variant: "destructive" });
-        return;
-    }
-    setEditingMark(mark);
-    reset({
-      studentId: mark.studentId,
-      subject: mark.subject,
-      assessmentType: mark.assessmentType,
-      score: mark.score,
-      maxScore: mark.maxScore,
-    });
-    setIsDialogOpen(true);
-  };
-
-  const handleDeleteMark = async (mark: Mark) => {
-    if (!isUserAuthorizedForSubject(mark.subject)) {
-        toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${mark.subject}.`, variant: "destructive" });
-        return;
-    }
-    setIsSubmitting(true);
-    try {
-      await apiDeleteMark(mark.id);
-      toast({ title: "Mark Deleted", description: "The mark has been successfully deleted." });
-      fetchInitialData(); 
-    } catch (error) {
-      toast({ title: "Error Deleting Mark", description: "Could not delete the mark.", variant: "destructive" });
-    }
-    setIsSubmitting(false);
-  };
-
-  const onSubmit = async (data: MarkFormData) => {
-    if (!isUserAuthorizedForSubject(data.subject)) {
+  const onSubmit = async (data: StudentSubjectMarksFormData) => {
+     if (!isUserAuthorizedForSubject(data.subject)) {
         toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${data.subject}.`, variant: "destructive" });
         return;
     }
     setIsSubmitting(true);
     try {
-      if (editingMark) {
-        await apiUpdateMark({ ...editingMark, ...data });
-        toast({ title: "Mark Updated", description: "The mark has been successfully updated." });
-      } else {
-        // Check if a mark for this student, subject, and assessment type already exists
-        const existingEntry = allMarks.find(m => m.studentId === data.studentId && m.subject === data.subject && m.assessmentType === data.assessmentType);
-        if (existingEntry) {
-            toast({ title: "Duplicate Entry", description: `A mark for ${data.assessmentType} in ${data.subject} for this student already exists. Please edit the existing entry.`, variant: "destructive", duration: 5000 });
-            setIsSubmitting(false);
-            return;
-        }
-        await apiAddMark(data);
-        toast({ title: "Mark Added", description: "The mark has been successfully added." });
+      const student = students.find(s => s.id === data.studentId);
+      if (!student) {
+        toast({ title: "Student not found", variant: "destructive" });
+        setIsSubmitting(false);
+        return;
       }
-      fetchInitialData(); 
-      setIsDialogOpen(false);
+
+      for (const type of assessmentTypes) {
+        const score = data.scores[type];
+        const existingMark = editingAggregatedMark?.marks[type];
+
+        if (score !== null && score !== undefined) { // Score is entered or changed
+          const markPayload = {
+            studentId: data.studentId,
+            subject: data.subject,
+            assessmentType: type,
+            score: score,
+            maxScore: ASSESSMENT_MAX_SCORES[type],
+          };
+          if (existingMark) {
+            if (existingMark.score !== score) {
+              await apiUpdateMark({ ...existingMark, ...markPayload });
+            }
+          } else {
+            await apiAddMark(markPayload);
+          }
+        } else if (existingMark) { // Score is cleared, and mark existed
+          await apiDeleteMark(existingMark.id);
+        }
+      }
+
+      toast({ title: "Marks Saved", description: `Marks for ${student.name} in ${data.subject} have been updated.` });
+      await fetchInitialData();
+      setIsSheetOpen(false);
     } catch (error) {
-      toast({ title: "Error Saving Mark", description: "Could not save the mark.", variant: "destructive" });
+      console.error("Error saving marks:", error);
+      toast({ title: "Error Saving Marks", description: "Could not save the marks.", variant: "destructive" });
     }
     setIsSubmitting(false);
   };
-
-  const handleSuggestMarks = async () => {
-    if (!currentStudentId || !currentSubject || !currentAssessmentType) {
-      toast({ title: "Missing Information", description: "Please select student, subject, and assessment type.", variant: "destructive" });
+  
+  const handleDeleteAllMarksForEntry = async (entry: AggregatedMarkEntry) => {
+    if (!isUserAuthorizedForSubject(entry.subject)) {
+      toast({ title: "Unauthorized", description: `You are not authorized to delete marks for ${entry.subject}.`, variant: "destructive" });
       return;
     }
-    if (!isUserAuthorizedForSubject(currentSubject)) {
-        toast({ title: "Unauthorized", description: `You are not authorized to suggest marks for ${currentSubject}.`, variant: "destructive" });
-        return;
-    }
-    const student = students.find(s => s.id === currentStudentId);
-    if (!student) {
-        toast({ title: "Student not found", description: "Selected student PRN is invalid.", variant: "destructive" });
-        return;
-    }
-
     setIsSubmitting(true);
     try {
-      const input: MarksSuggestionInput = { 
-        prn: student.id, 
-        name: student.name, 
-        subject: currentSubject, 
-        assessmentType: currentAssessmentType,
-        maxMarks: ASSESSMENT_MAX_SCORES[currentAssessmentType] 
-      };
-      const suggestion = await generateMarksSuggestions(input);
-      setValue('score', suggestion.suggestedMarks);
-      toast({ title: "AI Suggestion", description: `${suggestion.reason} Suggested Marks for ${currentAssessmentType}: ${suggestion.suggestedMarks}` });
+      for (const type of assessmentTypes) {
+        const mark = entry.marks[type];
+        if (mark) {
+          await apiDeleteMark(mark.id);
+        }
+      }
+      toast({ title: "Marks Deleted", description: `All marks for ${entry.studentName} in ${entry.subject} have been deleted.` });
+      await fetchInitialData();
     } catch (error) {
-      toast({ title: "AI Suggestion Failed", description: "Could not get AI mark suggestion.", variant: "destructive" });
+      toast({ title: "Error Deleting Marks", variant: "destructive" });
     }
     setIsSubmitting(false);
   };
 
-  const filteredMarks = useMemo(() => {
-    let marksToFilter = allMarks;
-    if (!searchTerm) return marksToFilter;
-    return marksToFilter.filter(mark =>
-      mark.studentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mark.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mark.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mark.assessmentType.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [allMarks, searchTerm]);
 
   if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading marks data...</span></div>;
@@ -276,11 +249,11 @@ export function MarksManagement() {
       <CardHeader>
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <CardTitle className="text-2xl">Marks Management</CardTitle>
-            <CardDescription>Add, edit, or delete student marks for CA1, CA2, MidSem, and EndSem components.</CardDescription>
+            <CardTitle className="text-2xl">Consolidated Marks Management</CardTitle>
+            <CardDescription>View, add, or edit all assessment components for a student in a specific subject.</CardDescription>
           </div>
-          <Button onClick={handleAddMark} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={!canManageAnySubject}>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New Mark
+          <Button onClick={() => handleOpenSheet(null)} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={!canManageAnySubject}>
+            <PlusCircle className="mr-2 h-4 w-4" /> Add/Edit Student Marks
           </Button>
         </div>
         {(user?.role === 'teacher' || user?.role === 'admin') && !canManageAnySubject && (
@@ -288,226 +261,202 @@ export function MarksManagement() {
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>No Subjects Assigned</AlertTitle>
             <AlertDescription>
-              You are not currently assigned to manage marks for any subjects. {user?.role === 'admin' && "As an admin, you can assign subjects to yourself via 'User Subject Management'."}
+              You are not currently assigned to manage marks for any subjects. {user?.role === 'admin' && "As an admin, you can assign subjects to yourself via 'User Subject Assignment'."}
             </AlertDescription>
           </Alert>
         )}
         <div className="mt-4 relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-                type="text"
-                placeholder="Search by student name, PRN, subject, or assessment type..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10"
-            />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="text"
+            placeholder="Search by student name, PRN, or subject..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10"
+          />
         </div>
       </CardHeader>
       <CardContent>
-        {filteredMarks.length === 0 && !searchTerm && (
-             <div className="text-center py-8">
-                <GraduationCap className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-medium text-foreground">No marks found</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Get started by adding a new mark for your assigned subjects.</p>
-            </div>
+        {filteredAggregatedMarks.length === 0 && (
+          <div className="text-center py-8">
+            {searchTerm ? <Search className="mx-auto h-12 w-12 text-muted-foreground" /> : <GraduationCap className="mx-auto h-12 w-12 text-muted-foreground" />}
+            <h3 className="mt-2 text-sm font-medium text-foreground">
+              {searchTerm ? `No marks found for "${searchTerm}"` : "No marks found"}
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {searchTerm ? "Try a different search term." : "Get started by adding marks for a student."}
+            </p>
+          </div>
         )}
-        {filteredMarks.length === 0 && searchTerm && (
-             <div className="text-center py-8">
-                <Search className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-medium text-foreground">No marks found for "{searchTerm}"</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Try a different search term.</p>
-            </div>
-        )}
-        {filteredMarks.length > 0 && (
-        <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Student PRN</TableHead>
-              <TableHead>Student Name</TableHead>
-              <TableHead>Subject</TableHead>
-              <TableHead>Assessment</TableHead>
-              <TableHead className="text-right">Score</TableHead>
-              <TableHead className="text-right">Max Score</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredMarks.map((mark) => {
-              const canEditOrDelete = isUserAuthorizedForSubject(mark.subject);
-              return (
-              <TableRow key={mark.id}>
-                <TableCell>{mark.studentId}</TableCell>
-                <TableCell>{mark.studentName || students.find(s => s.id === mark.studentId)?.name || 'N/A'}</TableCell>
-                <TableCell>{mark.subject}</TableCell>
-                <TableCell><Badge variant="secondary">{mark.assessmentType}</Badge></TableCell>
-                <TableCell className="text-right">{mark.score}</TableCell>
-                <TableCell className="text-right">{mark.maxScore}</TableCell>
-                <TableCell className="text-right space-x-2">
-                  <Button variant="outline" size="icon" onClick={() => handleEditMark(mark)} className="hover:text-accent hover:border-accent" disabled={!canEditOrDelete || isSubmitting}>
-                    <Edit2 className="h-4 w-4" />
-                    <span className="sr-only">Edit Mark</span>
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="icon" className="hover:text-destructive hover:border-destructive" disabled={!canEditOrDelete || isSubmitting}>
-                        <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Delete Mark</span>
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This action cannot be undone. This will permanently delete the {mark.assessmentType} mark for {mark.subject} for student {mark.studentName || mark.studentId}.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDeleteMark(mark)} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
-                          {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete"}
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </TableCell>
-              </TableRow>
-            )})}
-          </TableBody>
-        </Table>
-        </div>
+        {filteredAggregatedMarks.length > 0 && (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Student PRN</TableHead>
+                  <TableHead>Student Name</TableHead>
+                  <TableHead>Subject</TableHead>
+                  {assessmentTypes.map(type => <TableHead key={type} className="text-right">{type} ({ASSESSMENT_MAX_SCORES[type]})</TableHead>)}
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredAggregatedMarks.map((aggMark) => {
+                  const canEditOrDelete = isUserAuthorizedForSubject(aggMark.subject);
+                  return (
+                    <TableRow key={`${aggMark.studentId}-${aggMark.subject}`}>
+                      <TableCell>{aggMark.studentId}</TableCell>
+                      <TableCell>{aggMark.studentName}</TableCell>
+                      <TableCell>{aggMark.subject}</TableCell>
+                      {assessmentTypes.map(type => (
+                        <TableCell key={type} className="text-right">
+                          {aggMark.marks[type]?.score ?? '-'}
+                        </TableCell>
+                      ))}
+                      <TableCell className="text-right space-x-2">
+                        <Button variant="outline" size="sm" onClick={() => handleOpenSheet(aggMark)} className="hover:text-accent hover:border-accent" disabled={!canEditOrDelete || isSubmitting}>
+                          <Edit2 className="mr-1 h-3 w-3" /> Edit
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="destructive" size="sm" className="text-xs" disabled={!canEditOrDelete || isSubmitting}>
+                              <Trash2 className="mr-1 h-3 w-3" /> Delete All
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete all marks for {aggMark.studentName} in {aggMark.subject}.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDeleteAllMarksForEntry(aggMark)} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete All Marks"}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+      <Dialog open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{editingMark ? `Edit Mark for ${editingMark.assessmentType}` : 'Add New Mark Component'}</DialogTitle>
+            <DialogTitle>{editingAggregatedMark ? `Edit Marks for ${editingAggregatedMark.studentName} - ${editingAggregatedMark.subject}` : 'Add New Student Marks'}</DialogTitle>
             <DialogDescription>
-              {editingMark ? 'Update the details for this mark component.' : 'Enter the details for the new mark component.'}
+              Enter or update scores for all assessment components. Leave blank to not record/delete a component.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Controller
-                name="studentId"
-                control={control}
-                render={({ field }) => (
-                  <div className="space-y-1">
-                    <Label htmlFor="studentId">Student PRN</Label>
-                    <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark}>
-                      <SelectTrigger id="studentId" className="w-full">
-                        <SelectValue placeholder="Select Student" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {students.map(student => (
-                          <SelectItem key={student.id} value={student.id}>
-                            {student.name} ({student.id})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.studentId && <p className="text-sm text-destructive">{errors.studentId.message}</p>}
-                  </div>
-                )}
-              />
-              <Controller
-                name="subject"
-                control={control}
-                render={({ field }) => (
-                  <div className="space-y-1">
-                    <Label htmlFor="subject">Subject</Label>
-                    {canManageAnySubject ? (
-                      <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark && !isUserAuthorizedForSubject(editingMark.subject)}>
-                        <SelectTrigger id="subject" className="w-full">
-                          <SelectValue placeholder="Select Subject" />
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4">
+            {!editingAggregatedMark && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="studentId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <Label htmlFor="studentId-dialog">Student PRN</Label>
+                      <Select onValueChange={field.onChange} value={field.value} disabled={!!editingAggregatedMark}>
+                        <SelectTrigger id="studentId-dialog">
+                          <SelectValue placeholder="Select Student" />
                         </SelectTrigger>
                         <SelectContent>
-                          {userManagedSubjects.map(subject => (
-                            <SelectItem key={subject} value={subject}>
-                              {subject}
+                          {students.map(student => (
+                            <SelectItem key={student.id} value={student.id}>
+                              {student.name} ({student.id})
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                    ) : (
-                      <Input id="subject" placeholder="No subjects assigned" {...field} disabled />
-                    )}
-                    {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
-                  </div>
-                )}
-              />
-            </div>
-            
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Controller
-                    name="assessmentType"
-                    control={control}
-                    render={({ field }) => (
-                    <div className="space-y-1">
-                        <Label htmlFor="assessmentType">Assessment Type</Label>
-                        <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark}>
-                        <SelectTrigger id="assessmentType">
-                            <SelectValue placeholder="Select Type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {assessmentTypes.map(type => (
-                            <SelectItem key={type} value={type}>
-                                {type} (Max: {ASSESSMENT_MAX_SCORES[type]})
-                            </SelectItem>
-                            ))}
-                        </SelectContent>
-                        </Select>
-                        {errors.assessmentType && <p className="text-sm text-destructive">{errors.assessmentType.message}</p>}
-                    </div>
-                    )}
+                      {form.formState.errors.studentId && <p className="text-sm text-destructive mt-1">{form.formState.errors.studentId.message}</p>}
+                    </FormItem>
+                  )}
                 />
-                 <div className="space-y-1">
-                    <Label htmlFor="maxScore">Max Score</Label>
-                    <Controller
-                    name="maxScore"
-                    control={control}
-                    render={({ field }) => <Input id="maxScore" type="number" {...field} readOnly className="bg-muted/50" />}
-                    />
-                    {errors.maxScore && <p className="text-sm text-destructive">{errors.maxScore.message}</p>}
-                </div>
-            </div>
-           
-            <div className="space-y-1">
-              <Label htmlFor="score">Score Obtained</Label>
-              <Controller
-                name="score"
-                control={control}
-                render={({ field }) => <Input id="score" type="number" placeholder="e.g., 8" {...field} />}
-              />
-                {errors.score && <p className="text-sm text-destructive">{errors.score.message}</p>}
-            </div>
+                <FormField
+                  control={form.control}
+                  name="subject"
+                  render={({ field }) => (
+                    <FormItem>
+                      <Label htmlFor="subject-dialog">Subject</Label>
+                      {canManageAnySubject ? (
+                        <Select onValueChange={field.onChange} value={field.value} disabled={!!editingAggregatedMark && !isUserAuthorizedForSubject(editingAggregatedMark.subject)}>
+                          <SelectTrigger id="subject-dialog">
+                            <SelectValue placeholder="Select Subject" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {userManagedSubjects.map(subject => (
+                              <SelectItem key={subject} value={subject}>
+                                {subject}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Input id="subject-dialog" placeholder="No subjects assigned" value={field.value} onChange={field.onChange} disabled />
+                      )}
+                      {form.formState.errors.subject && <p className="text-sm text-destructive mt-1">{form.formState.errors.subject.message}</p>}
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
             
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={handleSuggestMarks} 
-              className="w-full" 
-              disabled={isSubmitting || !currentStudentId || !currentSubject || !currentAssessmentType || !canManageAnySubject || !isUserAuthorizedForSubject(currentSubject)}
-            >
-              {isSubmitting && watch('score') === undefined ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Lightbulb className="mr-2 h-4 w-4" />}
-              Suggest Score (AI)
-            </Button>
-          <DialogFooter>
-            <DialogClose asChild>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t">
+                {assessmentTypes.map((type) => (
+                    <FormField
+                        control={form.control}
+                        name={`scores.${type}`}
+                        key={type}
+                        render={({ field: { onChange, onBlur, value, name } }) => (
+                            <FormItem>
+                                <Label htmlFor={name} className="text-sm">{type} (Max: {ASSESSMENT_MAX_SCORES[type]})</Label>
+                                <Input
+                                    id={name}
+                                    type="number"
+                                    placeholder={`Score / ${ASSESSMENT_MAX_SCORES[type]}`}
+                                    value={value === null || value === undefined ? '' : String(value)}
+                                    onChange={(e) => {
+                                        const numValue = e.target.value === '' ? null : Number(e.target.value);
+                                        onChange(numValue);
+                                    }}
+                                    onBlur={onBlur}
+                                    min="0"
+                                    max={ASSESSMENT_MAX_SCORES[type]}
+                                />
+                                {form.formState.errors.scores?.[type] && <p className="text-sm text-destructive mt-1">{form.formState.errors.scores[type]?.message}</p>}
+                            </FormItem>
+                        )}
+                    />
+                ))}
+            </div>
+
+            <DialogFooter>
+              <DialogClose asChild>
                 <Button type="button" variant="outline" disabled={isSubmitting}>Cancel</Button>
-            </DialogClose>
-            <Button 
-              type="submit" 
-              disabled={isSubmitting || !canManageAnySubject || (currentSubject && !isUserAuthorizedForSubject(currentSubject))} 
-              className="bg-primary hover:bg-primary/90 text-primary-foreground"
-            >
-              {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (editingMark ? 'Save Changes' : 'Add Mark')}
-            </Button>
-          </DialogFooter>
+              </DialogClose>
+              <Button
+                type="submit"
+                disabled={isSubmitting || !form.watch('subject') || (form.watch('subject') && !isUserAuthorizedForSubject(form.watch('subject')))}
+                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+              >
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : 'Save All Marks'}
+              </Button>
+            </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
     </Card>
   );
 }
+
+// Re-export FormItem from shadcn/ui if not already directly available for FormField
+import { FormField, FormItem } from '@/components/ui/form';
