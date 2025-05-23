@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -5,7 +6,7 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AtSign, KeyRound, Users } from "lucide-react";
+import { AtSign, KeyRound, Users, Shield } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,7 +27,7 @@ import { useState } from "react";
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  role: z.enum(["student", "teacher"], { required_error: "You must select a role." }),
+  role: z.enum(["student", "teacher", "admin"], { required_error: "You must select a role." }),
 });
 
 export default function LoginPage() {
@@ -53,8 +54,10 @@ export default function LoginPage() {
       toast({ title: "Login Successful", description: "Welcome back!" });
       if (values.role === "teacher") {
         router.push("/teacher/dashboard");
-      } else {
+      } else if (values.role === "student") {
         router.push("/student/dashboard");
+      } else if (values.role === "admin") {
+        router.push("/admin/dashboard");
       }
     } else {
       toast({
@@ -114,19 +117,25 @@ export default function LoginPage() {
                   <RadioGroup
                     onValueChange={field.onChange}
                     defaultValue={field.value}
-                    className="flex space-x-4"
+                    className="grid grid-cols-1 sm:grid-cols-3 gap-4"
                   >
                     <FormItem className="flex items-center space-x-2 space-y-0">
                       <FormControl>
-                        <RadioGroupItem value="student" />
+                        <RadioGroupItem value="student" id="role-student"/>
                       </FormControl>
-                      <FormLabel className="font-normal text-foreground/90">Student</FormLabel>
+                      <FormLabel htmlFor="role-student" className="font-normal text-foreground/90">Student</FormLabel>
                     </FormItem>
                     <FormItem className="flex items-center space-x-2 space-y-0">
                       <FormControl>
-                        <RadioGroupItem value="teacher" />
+                        <RadioGroupItem value="teacher" id="role-teacher"/>
                       </FormControl>
-                      <FormLabel className="font-normal text-foreground/90">Teacher</FormLabel>
+                      <FormLabel htmlFor="role-teacher" className="font-normal text-foreground/90">Teacher</FormLabel>
+                    </FormItem>
+                     <FormItem className="flex items-center space-x-2 space-y-0">
+                      <FormControl>
+                        <RadioGroupItem value="admin" id="role-admin"/>
+                      </FormControl>
+                      <FormLabel htmlFor="role-admin" className="font-normal text-foreground/90">Admin</FormLabel>
                     </FormItem>
                   </RadioGroup>
                 </FormControl>

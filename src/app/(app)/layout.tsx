@@ -34,7 +34,10 @@ import {
   Settings,
   LogOut,
   GraduationCap,
-  PencilLine
+  PencilLine,
+  ShieldCheck,
+  Users2,
+  BookLock
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
@@ -65,7 +68,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           isActive={pathname.includes("/profile")}
           tooltip="Profile"
         >
-          <Link href={user.role === 'teacher' ? "/teacher/profile" : "/student/profile"}>
+          <Link href={user.role === 'teacher' ? "/teacher/profile" : user.role === 'student' ? "/student/profile" : "/admin/profile"}>
             <Users />
             <span>Profile</span>
           </Link>
@@ -167,6 +170,58 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       </SidebarMenuItem>
     </>
   );
+  
+  const adminMenuItems = (
+    <>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname === "/admin/dashboard"}
+          tooltip="Admin Dashboard"
+        >
+          <Link href="/admin/dashboard">
+            <ShieldCheck /> <span>Admin Dashboard</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname.startsWith("/admin/manage-users")}
+          tooltip="Manage Users"
+        >
+          <Link href="/admin/manage-users">
+            <Users2 /> <span>Manage Users</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname.startsWith("/admin/manage-teacher-subjects")}
+          tooltip="Teacher Subjects"
+        >
+          <Link href="/admin/manage-teacher-subjects">
+            <BookLock /> <span>Teacher Subjects</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    </>
+  );
+
+  let menuItems;
+  let portalTitle = "CampusMarks";
+  if (user.role === 'student') {
+    menuItems = studentMenuItems;
+    portalTitle = "Student Portal";
+  } else if (user.role === 'teacher') {
+    menuItems = teacherMenuItems;
+    portalTitle = "Teacher Portal";
+  } else if (user.role === 'admin') {
+    menuItems = adminMenuItems;
+    portalTitle = "Admin Panel";
+  }
+
 
   return (
     <SidebarProvider defaultOpen>
@@ -178,7 +233,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <SidebarContent>
           <ScrollArea className="h-full">
             <SidebarMenu className="px-2">
-              {user.role === 'student' ? studentMenuItems : teacherMenuItems}
+              {menuItems}
               <SidebarSeparator className="my-2" />
               {commonMenuItems}
             </SidebarMenu>
@@ -200,7 +255,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             <SidebarTrigger className="md:hidden" />
             <h1 className="text-xl font-semibold text-foreground">
-              { user.role === 'student' ? "Student Portal" : "Teacher Portal" }
+              {portalTitle}
             </h1>
           </div>
           <UserNav />

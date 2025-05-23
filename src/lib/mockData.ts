@@ -5,6 +5,7 @@ export const mockUsers: User[] = [
   { id: 'teacher2', email: 'prof.curie@example.com', name: 'Prof. Marie Curie', role: 'teacher', subjects: ['Chemistry', 'Advanced Physics'] },
   { id: 'student1', email: 'student1@example.com', name: 'Alice Smith', role: 'student', prn: 'PRN001' },
   { id: 'student2', email: 'student2@example.com', name: 'Bob Johnson', role: 'student', prn: 'PRN002' },
+  { id: 'admin01', email: 'admin@example.com', name: 'Super Admin', role: 'admin' },
 ];
 
 export const mockMarks: Mark[] = [
@@ -15,7 +16,7 @@ export const mockMarks: Mark[] = [
   { id: 'mark5', studentId: 'PRN002', subject: 'Chemistry', score: 65, maxScore: 100, term: 'Midterm', grade: 'C+' },
 ];
 
-export const mockStudents: Student[] = [
+export let mockStudents: Student[] = [
   {
     id: 'PRN001',
     name: 'Alice Smith',
@@ -52,13 +53,19 @@ export const getAllTeachers = async (): Promise<User[]> => {
   return mockUsers.filter(user => user.role === 'teacher');
 };
 
+export const getAllUsers = async (): Promise<User[]> => {
+  await new Promise(resolve => setTimeout(resolve, 300));
+  return mockUsers;
+};
+
+
 export const addMark = async (mark: Omit<Mark, 'id'>): Promise<Mark> => {
   await new Promise(resolve => setTimeout(resolve, 300));
   const newMark: Mark = { ...mark, id: `mark${mockMarks.length + 1}` };
   mockMarks.push(newMark);
-  const student = mockStudents.find(s => s.id === mark.studentId);
-  if (student) {
-    student.marks.push(newMark);
+  const studentIndex = mockStudents.findIndex(s => s.id === mark.studentId);
+  if (studentIndex !== -1) {
+    mockStudents[studentIndex].marks.push(newMark);
   }
   return newMark;
 };
@@ -68,11 +75,11 @@ export const updateMark = async (updatedMark: Mark): Promise<Mark | undefined> =
   const markIndex = mockMarks.findIndex(m => m.id === updatedMark.id);
   if (markIndex !== -1) {
     mockMarks[markIndex] = updatedMark;
-    const student = mockStudents.find(s => s.id === updatedMark.studentId);
-    if (student) {
-      const studentMarkIndex = student.marks.findIndex(m => m.id === updatedMark.id);
+    const studentIndex = mockStudents.findIndex(s => s.id === updatedMark.studentId);
+    if (studentIndex !== -1) {
+      const studentMarkIndex = mockStudents[studentIndex].marks.findIndex(m => m.id === updatedMark.id);
       if (studentMarkIndex !== -1) {
-        student.marks[studentMarkIndex] = updatedMark;
+        mockStudents[studentIndex].marks[studentMarkIndex] = updatedMark;
       }
     }
     return updatedMark;
@@ -86,9 +93,9 @@ export const deleteMark = async (markId: string): Promise<boolean> => {
   if (markIndex !== -1) {
     const studentId = mockMarks[markIndex].studentId;
     mockMarks.splice(markIndex, 1);
-    const student = mockStudents.find(s => s.id === studentId);
-    if (student) {
-      student.marks = student.marks.filter(m => m.id !== markId);
+    const studentIndex = mockStudents.findIndex(s => s.id === studentId);
+    if (studentIndex !== -1) {
+      mockStudents[studentIndex].marks = mockStudents[studentIndex].marks.filter(m => m.id !== markId);
     }
     return true;
   }
@@ -97,14 +104,14 @@ export const deleteMark = async (markId: string): Promise<boolean> => {
 
 export const updateStudentName = async (prn: string, newName: string): Promise<Student | undefined> => {
   await new Promise(resolve => setTimeout(resolve, 300));
-  const student = mockStudents.find(s => s.id === prn);
-  if (student) {
-    student.name = newName;
-    const user = mockUsers.find(u => u.prn === prn);
-    if (user) {
-      user.name = newName;
+  const studentIndex = mockStudents.findIndex(s => s.id === prn);
+  if (studentIndex !== -1) {
+    mockStudents[studentIndex].name = newName;
+    const userIndex = mockUsers.findIndex(u => u.prn === prn);
+    if (userIndex !== -1) {
+      mockUsers[userIndex].name = newName;
     }
-    return student;
+    return mockStudents[studentIndex];
   }
   return undefined;
 };
@@ -120,18 +127,27 @@ export const createUser = async (userData: Omit<User, 'id'> & { subjects?: strin
   if (userData.role === 'student' && !userData.prn) {
     newUser.prn = `PRN${String(mockStudents.length + 1).padStart(3, '0')}`;
   }
-  // For teachers, subjects would be assigned via an admin interface in a real app
-  // For now, new teachers won't have subjects by default through this function.
-  // We could add `subjects: userData.subjects || []` if registration included it.
+  
   mockUsers.push(newUser);
+
   if (newUser.role === 'student' && newUser.prn) {
-    const existingStudent = mockStudents.find(s => s.id === newUser.prn);
-    if (!existingStudent) {
+    const existingStudentIndex = mockStudents.findIndex(s => s.id === newUser.prn);
+    if (existingStudentIndex === -1) {
        mockStudents.push({id: newUser.prn, name: newUser.name, email: newUser.email, marks: [] });
     } else {
-      existingStudent.name = newUser.name; // Update name if PRN exists
-      existingStudent.email = newUser.email;
+      mockStudents[existingStudentIndex].name = newUser.name; 
+      mockStudents[existingStudentIndex].email = newUser.email;
     }
   }
   return newUser;
 }
+
+export const assignSubjectsToTeacher = async (teacherId: string, subjects: string[]): Promise<User | undefined> => {
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const teacherIndex = mockUsers.findIndex(u => u.id === teacherId && u.role === 'teacher');
+  if (teacherIndex !== -1) {
+    mockUsers[teacherIndex].subjects = subjects;
+    return mockUsers[teacherIndex];
+  }
+  return undefined;
+};

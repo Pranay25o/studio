@@ -1,3 +1,4 @@
+
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,7 +31,7 @@ const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
   email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  role: z.enum(["student", "teacher"], { required_error: "You must select a role." }),
+  role: z.enum(["student", "teacher", "admin"], { required_error: "You must select a role." }), // Added admin for schema consistency
   prn: z.string().optional(),
 }).refine(data => {
   if (data.role === 'student' && (!data.prn || data.prn.trim() === '')) {
@@ -82,16 +83,22 @@ export default function RegisterPage() {
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    // For teachers, subjects are not handled in this form, they would be assigned by an admin.
+    // Admins should not be registered through this public form.
+    if (values.role === 'admin') {
+        toast({ title: "Registration Info", description: "Admin registration is not allowed through this form.", variant: "default" });
+        setIsLoading(false);
+        return;
+    }
     const success = await register(values.name, values.email, values.password, values.role as Role, values.prn);
     setIsLoading(false);
     if (success) {
       toast({ title: "Registration Successful", description: "Welcome to CampusMarks!" });
       if (values.role === "teacher") {
         router.push("/teacher/dashboard");
-      } else {
+      } else if (values.role === "student") {
         router.push("/student/dashboard");
       }
+      // Admin redirect won't be hit from UI due to above check
     } else {
       toast({
         title: "Registration Failed",
@@ -170,15 +177,15 @@ export default function RegisterPage() {
                   >
                     <FormItem className="flex items-center space-x-2 space-y-0">
                       <FormControl>
-                        <RadioGroupItem value="student" />
+                        <RadioGroupItem value="student" id="reg-role-student"/>
                       </FormControl>
-                      <FormLabel className="font-normal text-foreground/90">Student</FormLabel>
+                      <FormLabel htmlFor="reg-role-student" className="font-normal text-foreground/90">Student</FormLabel>
                     </FormItem>
                     <FormItem className="flex items-center space-x-2 space-y-0">
                       <FormControl>
-                        <RadioGroupItem value="teacher" />
+                        <RadioGroupItem value="teacher" id="reg-role-teacher"/>
                       </FormControl>
-                      <FormLabel className="font-normal text-foreground/90">Teacher</FormLabel>
+                      <FormLabel htmlFor="reg-role-teacher" className="font-normal text-foreground/90">Teacher</FormLabel>
                     </FormItem>
                   </RadioGroup>
                 </FormControl>

@@ -1,3 +1,4 @@
+
 "use client";
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -14,6 +15,8 @@ export default function HomePage() {
           router.replace('/teacher/dashboard');
         } else if (user.role === 'student') {
           router.replace('/student/dashboard');
+        } else if (user.role === 'admin') {
+          router.replace('/admin/dashboard');
         } else {
            router.replace('/login'); // Fallback, should not happen with proper roles
         }

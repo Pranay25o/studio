@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -24,10 +25,24 @@ export function UserNav() {
   }
 
   const getInitials = (name: string) => {
+    if (!name) return 'U';
     const names = name.split(' ');
     if (names.length === 1) return names[0].substring(0, 2).toUpperCase();
     return (names[0][0] + names[names.length - 1][0]).toUpperCase();
   };
+
+  const getProfileLink = () => {
+    switch (user.role) {
+      case 'teacher':
+        return '/teacher/profile';
+      case 'student':
+        return '/student/profile';
+      case 'admin':
+        return '/admin/profile';
+      default:
+        return '/login'; // Fallback
+    }
+  }
 
   return (
     <DropdownMenu>
@@ -50,7 +65,7 @@ export function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => router.push(user.role === 'teacher' ? '/teacher/profile' : '/student/profile')}>
+          <DropdownMenuItem onClick={() => router.push(getProfileLink())}>
             <UserCircle className="mr-2 h-4 w-4" />
             <span>Profile</span>
           </DropdownMenuItem>
