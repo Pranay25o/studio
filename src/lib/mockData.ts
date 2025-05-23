@@ -1,7 +1,8 @@
 
+// src/lib/mockData.ts
 import type { Student, User, Mark, Role, AssessmentType, Semester, TeacherSemesterAssignment } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
-import { db } from './firebaseConfig';
+import { db } from './firebaseConfig'; // Ensure this is correctly configured
 import {
   collection,
   getDocs,
@@ -21,22 +22,28 @@ import {
 
 // ##########################################################################
 // #                                                                        #
-// #       🚨 IMPORTANT: FIREBASE CONFIGURATION REQUIRED 🚨                 #
+// #       🚨 IMPORTANT: FIREBASE CONFIGURATION & RULES REQUIRED 🚨         #
 // #                                                                        #
-// #  This app uses Firebase Firestore for data.                            #
-// #  Ensure `src/lib/firebaseConfig.ts` has your ACTUAL Firebase project   #
-// #  credentials. Failure to do so will prevent Firestore features from    #
-// #  working.                                                              #
-// #                                                                        #
-// #  Placeholder values (like "YOUR_API_KEY_HERE") MUST be replaced.       #
-// #  Check the comments in `src/lib/firebaseConfig.ts` for instructions.   #
+// #  1. Ensure `src/lib/firebaseConfig.ts` has your ACTUAL Firebase        #
+// #     project credentials.                                               #
+// #  2. If you see "Missing or insufficient permissions" errors,           #
+// #     you MUST check and update your Firestore Security Rules in the     #
+// #     Firebase console. For development, you might temporarily set       #
+// #     rules to `allow read, write: if true;` or                         #
+// #     `allow read, write: if request.auth != null;` but secure these     #
+// #     for production.                                                    #
 // #                                                                        #
 // ##########################################################################
 
 const checkFirebaseConfig = () => {
-  const currentConfigApiKey = (typeof window !== "undefined" && (window as any).firebase?.app?.options?.apiKey) || db.app.options.apiKey;
-  if (currentConfigApiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
-    console.error("CRITICAL: Firebase config in src/lib/firebaseConfig.ts is using placeholder values. Update it with your project credentials.");
+  // Check if db object exists and has the app property and options
+  if (!db || !db.app || !db.app.options || !db.app.options.apiKey) {
+    console.error("CRITICAL: Firebase SDK not initialized correctly. db object is invalid.");
+    throw new Error("FirebaseMisconfigured");
+  }
+  const currentConfigApiKey = db.app.options.apiKey;
+  if (currentConfigApiKey === "YOUR_API_KEY_HERE" || currentConfigApiKey === "" || currentConfigApiKey === undefined) {
+    console.error("CRITICAL: Firebase config in src/lib/firebaseConfig.ts is using placeholder values or is empty. Update it with your project credentials.");
     throw new Error("FirebaseMisconfigured");
   }
 };
@@ -59,13 +66,14 @@ export const getAllAvailableSubjects = async (): Promise<string[]> => {
     const subjects = querySnapshot.docs.map(doc => doc.data().name as string);
     if (subjects.length === 0) {
         console.warn("No system subjects found in Firestore. Add some via the Admin Panel -> Manage System Subjects.");
-        return ["Default Subject (None in DB)"];
     }
     return subjects;
   } catch (error: any) {
     console.error("[getAllAvailableSubjects] Error fetching system subjects from Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
-    return ["Mathematics (Error)", "Physics (Error)"]; // Fallback
+    // If permission error, specific Firestore rules are needed.
+    // For other errors, return fallback.
+    return ["Error Loading Subjects"];
   }
 };
 
@@ -83,9 +91,11 @@ export const addSystemSubject = async (subjectName: string): Promise<boolean> =>
     }
     await addDoc(systemSubjectsCollectionRef, { name: trimmedName, nameLower: trimmedName.toLowerCase(), createdAt: Timestamp.now() });
     return true;
-  } catch (error: any) {
+  } catch (error: any)
+{
     console.error("[addSystemSubject] Error adding system subject to Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -109,41 +119,46 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
 
     const oldSubjectQuery = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedOldName.toLowerCase()));
     const oldSubjectSnapshot = await getDocs(oldSubjectQuery);
+
     if (oldSubjectSnapshot.empty) {
       console.warn(`System subject "${trimmedOldName}" not found for renaming in Firestore.`);
       return false;
     }
     const oldSubjectDoc = oldSubjectSnapshot.docs[0];
-    batch.update(doc(db, "systemSubjects", oldSubjectDoc.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
+    batch.update(doc(db, "systemSubjects", oldSubjectDoc.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase(), updatedAt: Timestamp.now() });
 
     // Update in users' general subjects and semester assignments
-    // Recommendation: Index `subjects` (array-contains) and `semesterAssignments.subjects` (array-contains) in `users`
-    const usersSnapshot = await getDocs(usersCollectionRef);
-    usersSnapshot.forEach(userDoc => {
+    // Recommendation: Composite index on `subjects` (array-contains) for users.
+    // Recommendation: For semesterAssignments, if querying deeply, structure might need adjustment or more complex indexing.
+    const usersQueryGeneral = query(usersCollectionRef, where("subjects", "array-contains", trimmedOldName));
+    const usersSnapshotGeneral = await getDocs(usersQueryGeneral);
+    usersSnapshotGeneral.forEach(userDoc => {
       const userData = userDoc.data() as User;
-      let userModified = false;
-      const updatedUserFields: any = {};
-
-      if (userData.subjects && userData.subjects.includes(trimmedOldName)) {
-        updatedUserFields.subjects = userData.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort();
-        userModified = true;
-      }
-      if (userData.semesterAssignments) {
-        const newSemesterAssignments = userData.semesterAssignments.map(sa => {
-          if (sa.subjects.includes(trimmedOldName)) {
-            return { ...sa, subjects: sa.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort() };
-          }
-          return sa;
-        });
-        if (JSON.stringify(newSemesterAssignments) !== JSON.stringify(userData.semesterAssignments)) {
-          updatedUserFields.semesterAssignments = newSemesterAssignments;
-          userModified = true;
-        }
-      }
-      if (userModified) {
-        batch.update(doc(db, "users", userDoc.id), updatedUserFields);
-      }
+      const updatedSubjects = userData.subjects?.map(s => s === trimmedOldName ? trimmedNewName : s).sort() || [];
+      batch.update(doc(db, "users", userDoc.id), { subjects: updatedSubjects });
     });
+
+    // This is more complex to query directly for nested array updates in Firestore efficiently without fetching all users.
+    // For a production app with many users, consider Cloud Functions for such cascading updates.
+    // For now, fetching all users and updating if needed:
+    const allUsersSnapshot = await getDocs(usersCollectionRef);
+    allUsersSnapshot.forEach(userDoc => {
+        const userData = userDoc.data() as User;
+        if (userData.semesterAssignments) {
+            let userModified = false;
+            const newSemesterAssignments = userData.semesterAssignments.map(sa => {
+                if (sa.subjects.includes(trimmedOldName)) {
+                    userModified = true;
+                    return { ...sa, subjects: sa.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort() };
+                }
+                return sa;
+            });
+            if (userModified) {
+                batch.update(doc(db, "users", userDoc.id), { semesterAssignments: newSemesterAssignments });
+            }
+        }
+    });
+
 
     // Update marks
     // Recommendation: Index `subject` in `marks`
@@ -158,6 +173,7 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
   } catch (error: any) {
     console.error("[renameSystemSubject] Error renaming system subject in Firestore and related data:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -177,33 +193,34 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     const subjectDoc = querySnapshot.docs[0];
     batch.delete(doc(db, "systemSubjects", subjectDoc.id));
 
-    const usersSnapshot = await getDocs(usersCollectionRef);
-    usersSnapshot.forEach(userDoc => {
+    // Update in users' general subjects and semester assignments
+    const usersQueryGeneral = query(usersCollectionRef, where("subjects", "array-contains", trimmedName));
+    const usersSnapshotGeneral = await getDocs(usersQueryGeneral);
+    usersSnapshotGeneral.forEach(userDoc => {
       const userData = userDoc.data() as User;
-      let userModified = false;
-      const updatedUserFields: any = {};
-
-      if (userData.subjects && userData.subjects.includes(trimmedName)) {
-        updatedUserFields.subjects = userData.subjects.filter(s => s !== trimmedName).sort();
-        userModified = true;
-      }
-      if (userData.semesterAssignments) {
-        const newSemesterAssignments = userData.semesterAssignments.map(sa => {
-          if (sa.subjects.includes(trimmedName)) {
-            return { ...sa, subjects: sa.subjects.filter(s => s !== trimmedName).sort() };
-          }
-          return sa;
-        }).filter(sa => sa.subjects.length > 0);
-         if (JSON.stringify(newSemesterAssignments) !== JSON.stringify(userData.semesterAssignments)) {
-          updatedUserFields.semesterAssignments = newSemesterAssignments;
-          userModified = true;
-        }
-      }
-      if (userModified) {
-        batch.update(doc(db, "users", userDoc.id), updatedUserFields);
-      }
+      const updatedSubjects = userData.subjects?.filter(s => s !== trimmedName).sort() || [];
+      batch.update(doc(db, "users", userDoc.id), { subjects: updatedSubjects });
     });
 
+    const allUsersSnapshot = await getDocs(usersCollectionRef);
+    allUsersSnapshot.forEach(userDoc => {
+        const userData = userDoc.data() as User;
+        if (userData.semesterAssignments) {
+            let userModified = false;
+            const newSemesterAssignments = userData.semesterAssignments.map(sa => {
+                if (sa.subjects.includes(trimmedName)) {
+                    userModified = true;
+                    return { ...sa, subjects: sa.subjects.filter(s => s !== trimmedName).sort() };
+                }
+                return sa;
+            }).filter(sa => sa.subjects.length > 0); // Remove assignments with no subjects
+            if (userModified) {
+                 batch.update(doc(db, "users", userDoc.id), { semesterAssignments: newSemesterAssignments });
+            }
+        }
+    });
+
+    // Update marks: mark subject as "Deleted Subject (Original Name)"
     const marksQuery = query(marksCollectionRef, where("subject", "==", trimmedName));
     const marksSnapshot = await getDocs(marksQuery);
     marksSnapshot.forEach(markDoc => {
@@ -215,6 +232,7 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
   } catch (error: any) {
     console.error("[deleteSystemSubject] Error deleting system subject from Firestore and related data:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -235,6 +253,7 @@ export const getSemesters = async (): Promise<Semester[]> => {
   } catch (error: any) {
     console.error("[getSemesters] Error fetching semesters from Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return [];
   }
 };
@@ -256,6 +275,7 @@ export const addSemester = async (semesterName: string): Promise<boolean> => {
   } catch (error: any) {
     console.error("[addSemester] Error adding semester to Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -284,10 +304,10 @@ export const renameSemester = async (oldName: string, newName: string): Promise<
       return false;
     }
     const oldSemesterDoc = oldSnapshot.docs[0];
-    batch.update(doc(db, "semesters", oldSemesterDoc.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
+    batch.update(doc(db, "semesters", oldSemesterDoc.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase(), updatedAt: Timestamp.now() });
 
-    // Recommendation: Index `semesterAssignments.semester` in `users`
-    // Recommendation: Index `semester` in `marks`
+    // Recommendation: For semesterAssignments, if querying deeply, structure might need adjustment or more complex indexing.
+    // For now, fetching all users and updating if needed:
     const usersSnapshot = await getDocs(usersCollectionRef);
     usersSnapshot.forEach(userDoc => {
       const userData = userDoc.data() as User;
@@ -306,6 +326,7 @@ export const renameSemester = async (oldName: string, newName: string): Promise<
       }
     });
 
+    // Recommendation: Index `semester` in `marks`
     const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedOldName));
     const marksSnapshot = await getDocs(marksQuery);
     marksSnapshot.forEach(markDoc => {
@@ -317,6 +338,7 @@ export const renameSemester = async (oldName: string, newName: string): Promise<
   } catch (error: any) {
     console.error("[renameSemester] Error renaming semester in Firestore and related data:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -336,6 +358,7 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
     const semesterDoc = querySnapshot.docs[0];
     batch.delete(doc(db, "semesters", semesterDoc.id));
 
+    // Update users' semester assignments
     const usersSnapshot = await getDocs(usersCollectionRef);
     usersSnapshot.forEach(userDoc => {
       const userData = userDoc.data() as User;
@@ -347,6 +370,8 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
       }
     });
 
+    // Delete marks associated with this semester
+    // Recommendation: Index `semester` in `marks`
     const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedName));
     const marksSnapshot = await getDocs(marksQuery);
     marksSnapshot.forEach(markDoc => {
@@ -358,6 +383,7 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
   } catch (error: any) {
     console.error("[deleteSemester] Error deleting semester from Firestore and related data:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -365,7 +391,7 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
 // --- User Management Functions (Firestore-backed) ---
 export const getUserByEmail = async (emailInput: string): Promise<User | undefined> => {
   checkFirebaseConfig();
-  const trimmedEmail = emailInput.trim().toLowerCase();
+  const trimmedEmail = emailInput.trim().toLowerCase(); // Ensure robust trimming and lowercasing here
   try {
     // Recommendation: Index `email` in `users`
     const q = query(usersCollectionRef, where("email", "==", trimmedEmail));
@@ -380,12 +406,13 @@ export const getUserByEmail = async (emailInput: string): Promise<User | undefin
   } catch (error: any) {
     console.error(`[getUserByEmail] Error fetching user by email |${trimmedEmail}| from Firestore:`, error);
     if (error.message === "FirebaseMisconfigured") throw error;
-    // Do not return undefined directly on general error, let AuthContext handle "unexpected error"
+    // If permission error, specific Firestore rules are needed.
+    // For other errors (like network), throw a distinct error.
     throw new Error("DatabaseQueryFailed");
   }
 };
 
-export const createUser = async (userData: Omit<User, 'id' | 'subjects' | 'semesterAssignments'> & { subjects?: string[], semesterAssignments?: TeacherSemesterAssignment[] }): Promise<User> => {
+export const createUser = async (userData: Omit<User, 'id' | 'subjects' | 'semesterAssignments'> & { prn?: string, subjects?: string[], semesterAssignments?: TeacherSemesterAssignment[] }): Promise<User> => {
   checkFirebaseConfig();
   try {
     const dataForFirestore: { [key: string]: any } = {
@@ -431,7 +458,8 @@ export const createUser = async (userData: Omit<User, 'id' | 'subjects' | 'semes
   } catch (error: any) {
     console.error("[createUser] Error creating user in Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
-    throw error; // Re-throw other errors to be handled by AuthContext
+    // Check Firestore Security Rules if permission denied
+    throw error;
   }
 };
 
@@ -439,11 +467,12 @@ export const getAllUsers = async (): Promise<User[]> => {
   checkFirebaseConfig();
   try {
     // Recommendation: Order by a field like `createdAt` or `name` if needed for consistent ordering
-    const querySnapshot = await getDocs(usersCollectionRef);
+    const querySnapshot = await getDocs(query(usersCollectionRef, orderBy("name")));
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
   } catch (error: any) {
     console.error("[getAllUsers] Error fetching all users from Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return [];
   }
 };
@@ -451,13 +480,14 @@ export const getAllUsers = async (): Promise<User[]> => {
 export const getAllTeachers = async (): Promise<User[]> => {
   checkFirebaseConfig();
   try {
-    // Recommendation: Index `role` in `users`
-    const q = query(usersCollectionRef, where("role", "in", ["teacher", "admin"]));
+    // Recommendation: Index `role` and `name` in `users`
+    const q = query(usersCollectionRef, where("role", "in", ["teacher", "admin"]), orderBy("name"));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
   } catch (error: any) {
     console.error("[getAllTeachers] Error fetching teachers from Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return [];
   }
 };
@@ -471,12 +501,13 @@ export const assignSubjectsToTeacher = async (userId: string, subjects: string[]
       console.warn(`User ${userId} not found or not a teacher/admin.`);
       return undefined;
     }
-    await updateDoc(userDocRef, { subjects: [...new Set(subjects)].sort() });
+    await updateDoc(userDocRef, { subjects: [...new Set(subjects)].sort(), updatedAt: Timestamp.now() });
     const updatedUserDoc = await getDoc(userDocRef);
     return { id: updatedUserDoc.id, ...updatedUserDoc.data() } as User;
   } catch (error: any) {
     console.error("[assignSubjectsToTeacher] Error assigning subjects to teacher in Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return undefined;
   }
 };
@@ -497,22 +528,24 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
 
       if (existingAssignmentIndex !== -1) {
         if (sortedSubjects.length === 0) {
+          // If no subjects are selected for an existing assignment, remove the assignment
           semesterAssignments.splice(existingAssignmentIndex, 1);
         } else {
           semesterAssignments[existingAssignmentIndex].subjects = sortedSubjects;
         }
       } else if (sortedSubjects.length > 0) {
+        // Add new assignment only if there are subjects to assign
         semesterAssignments.push({ semester, subjects: sortedSubjects });
       }
-      semesterAssignments.sort((a,b) => a.semester.localeCompare(b.semester));
-      transaction.update(userDocRef, { semesterAssignments });
+      semesterAssignments.sort((a,b) => a.semester.localeCompare(b.semester)); // Keep sorted
+      transaction.update(userDocRef, { semesterAssignments, updatedAt: Timestamp.now() });
     });
-    const updatedUserDoc = await getDoc(userDocRef);
+    const updatedUserDoc = await getDoc(userDocRef); // Re-fetch the user document to get the latest data
     return { id: updatedUserDoc.id, ...updatedUserDoc.data() } as User;
   } catch (error: any) {
     console.error("[assignSubjectsToTeacherForSemester] Error assigning subjects for semester in Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
-    // Do not return undefined directly, let UI handle transaction error
+    // Check Firestore Security Rules if permission denied
     throw new Error("DatabaseTransactionFailed");
   }
 };
@@ -521,8 +554,8 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
 export const getAllStudents = async (): Promise<Omit<Student, 'marks'>[]> => {
   checkFirebaseConfig();
   try {
-    // Recommendation: Index `role` in `users`
-    const studentUsersQuery = query(usersCollectionRef, where("role", "==", "student"));
+    // Recommendation: Index `role` and `name` in `users`
+    const studentUsersQuery = query(usersCollectionRef, where("role", "==", "student"), orderBy("name"));
     const studentUsersSnapshot = await getDocs(studentUsersQuery);
     const students: Omit<Student, 'marks'>[] = studentUsersSnapshot.docs.map(userDoc => {
       const userData = userDoc.data() as User;
@@ -531,15 +564,16 @@ export const getAllStudents = async (): Promise<Omit<Student, 'marks'>[]> => {
         return null;
       }
       return {
-        id: userData.prn!,
+        id: userData.prn!, // PRN is student ID
         name: userData.name,
         email: userData.email,
       };
     }).filter(student => student !== null) as Omit<Student, 'marks'>[];
-    return students.sort((a,b) => a.name.localeCompare(b.name));
+    return students;
   } catch (error: any) {
     console.error("[getAllStudents] Error fetching all student profiles from Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return [];
   }
 };
@@ -562,6 +596,7 @@ export const getAllMarks = async (semester?: Semester): Promise<Mark[]> => {
   } catch (error: any) {
     console.error(`[getAllMarks] Error fetching marks ${semester ? `for semester ${semester}` : ''} from Firestore:`, error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return [];
   }
 };
@@ -579,7 +614,7 @@ export const getStudentByPrn = async (prn: string): Promise<Student | undefined>
     const userDoc = studentUserSnapshot.docs[0];
     const userData = userDoc.data() as User;
 
-    // Recommendation: Index `studentId` in `marks`
+    // Recommendation: Index `studentId` in `marks` for efficient mark fetching per student
     const marksQuery = query(marksCollectionRef, where("studentId", "==", prn));
     const marksSnapshot = await getDocs(marksQuery);
     const studentMarks: Mark[] = marksSnapshot.docs.map(markDoc => ({
@@ -595,6 +630,7 @@ export const getStudentByPrn = async (prn: string): Promise<Student | undefined>
   } catch (error: any) {
     console.error(`[getStudentByPrn] Error fetching student by PRN ${prn} from Firestore:`, error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return undefined;
   }
 };
@@ -602,7 +638,7 @@ export const getStudentByPrn = async (prn: string): Promise<Student | undefined>
 export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
   checkFirebaseConfig();
   try {
-    // Recommendation: Index `prn` and `role` in `users`
+    // Recommendation: Index `prn` and `role` in `users` for student check
     const studentQuery = query(usersCollectionRef, where("prn", "==", markData.studentId), where("role", "==", "student"));
     const studentSnapshot = await getDocs(studentQuery);
     if (studentSnapshot.empty) {
@@ -629,6 +665,7 @@ export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
   } catch (error: any) {
     console.error("[addMark] Error adding or updating mark in Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     throw error;
   }
 };
@@ -637,12 +674,13 @@ export const updateMark = async (updatedMark: Mark): Promise<Mark | undefined> =
   checkFirebaseConfig();
   try {
     const markDocRef = doc(db, "marks", updatedMark.id);
-    const { id, ...markDataToUpdate } = updatedMark;
+    const { id, ...markDataToUpdate } = updatedMark; // Exclude 'id' from the data to be updated
     await updateDoc(markDocRef, { ...markDataToUpdate, updatedAt: Timestamp.now() });
     return updatedMark;
   } catch (error: any) {
     console.error("[updateMark] Error updating mark in Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return undefined;
   }
 };
@@ -656,6 +694,7 @@ export const deleteMark = async (markId: string): Promise<boolean> => {
   } catch (error: any) {
     console.error("[deleteMark] Error deleting mark from Firestore:", error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return false;
   }
 };
@@ -663,7 +702,7 @@ export const deleteMark = async (markId: string): Promise<boolean> => {
 export const updateStudentName = async (prn: string, newName: string): Promise<Omit<Student, 'marks'> | undefined> => {
   checkFirebaseConfig();
   try {
-    // Recommendation: Index `prn` and `role` in `users`
+    // Recommendation: Index `prn` and `role` in `users` for student check
     const studentUserQuery = query(usersCollectionRef, where("role", "==", "student"), where("prn", "==", prn));
     const studentUserSnapshot = await getDocs(studentUserQuery);
     if (studentUserSnapshot.empty) {
@@ -672,10 +711,11 @@ export const updateStudentName = async (prn: string, newName: string): Promise<O
     }
     const userDocToUpdate = studentUserSnapshot.docs[0];
     const userDocRef = doc(db, "users", userDocToUpdate.id);
-    await updateDoc(userDocRef, { name: newName, updatedAt: Timestamp.now() });
-    const updatedUserSnap = await getDoc(userDocRef);
-    if (!updatedUserSnap.exists()) {
-        console.warn(`[updateStudentName] Updated student user with PRN ${prn} not found after update.`);
+    await updateDoc(userDocRef, { name: newName.trim(), updatedAt: Timestamp.now() });
+
+    const updatedUserSnap = await getDoc(userDocRef); // Re-fetch to confirm update
+    if (!updatedUserSnap.exists()) { // Should not happen if update was successful
+        console.warn(`[updateStudentName] Updated student user with PRN ${prn} not found after update attempt.`);
         return undefined;
     }
     const updatedUserData = updatedUserSnap.data() as User;
@@ -687,6 +727,7 @@ export const updateStudentName = async (prn: string, newName: string): Promise<O
   } catch (error: any) {
     console.error(`[updateStudentName] Error updating student name for PRN ${prn} in Firestore:`, error);
     if (error.message === "FirebaseMisconfigured") throw error;
+    // Check Firestore Security Rules if permission denied
     return undefined;
   }
 };
