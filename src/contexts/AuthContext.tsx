@@ -49,24 +49,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
     
-    console.log('[AuthContext] LOGIN ATTEMPT: Raw emailInput="', emailInput, '", Length:', emailInput?.length, 'RoleAttempt="', roleAttempt, '"');
-
-    const trimmedEmailBeforeLowercase = robustTrim(emailInput);
-    console.log('[AuthContext] After robustTrim: trimmedEmailBeforeLowercase="', trimmedEmailBeforeLowercase, '", Length:', trimmedEmailBeforeLowercase?.length);
+    console.log('[AuthContext] LOGIN ATTEMPT: Raw emailInput="|', emailInput, '|", Length:', emailInput?.length);
     
-    const email = trimmedEmailBeforeLowercase.toLowerCase();
-    console.log('[AuthContext] After toLowerCase: final email for lookup="', email, '", Length:', email?.length);
+    const cleanedEmailInput = robustTrim(emailInput);
+    console.log('[AuthContext] After robustTrim: cleanedEmailInput="|', cleanedEmailInput, '|", Length:', cleanedEmailInput?.length);
+    
+    const email = cleanedEmailInput.toLowerCase();
+    console.log('[AuthContext] After toLowerCase: final email for lookup="|', email, '|", Length:', email?.length);
 
 
-    console.log('[AuthContext] Attempting to find user with final email="', email, '" and roleAttempt="', roleAttempt, '" in Firestore.');
+    console.log(`[AuthContext] Attempting to find user with final email="|${email}|" and roleAttempt="${roleAttempt}" in Firestore.`);
     
     try {
-      // getUserByEmail expects an already trimmed and lowercased email
       const foundUser = await getUserByEmail(email); 
       
       if (foundUser) {
-        console.log('[AuthContext] USER FOUND in Firestore: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '"');
-        console.log('[AuthContext] COMPARING ROLES: StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ') vs RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
+        console.log(`[AuthContext] USER FOUND in Firestore: ID="${foundUser.id}", Name="${foundUser.name}", Email="${foundUser.email}", StoredRole="${foundUser.role}"`);
+        console.log(`[AuthContext] COMPARING ROLES: StoredRole="${foundUser.role}" (Type: ${typeof foundUser.role}) vs RoleAttempt="${roleAttempt}" (Type: ${typeof roleAttempt})`);
         
         if (foundUser.role === roleAttempt) {
           console.log('[AuthContext] LOGIN SUCCESSFUL for user:', foundUser.name);
@@ -75,13 +74,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setIsLoading(false);
           return true;
         } else {
-          console.error('[AuthContext] ROLE MISMATCH: Stored role is "', foundUser.role, '" but attempted role was "', roleAttempt, '". Login failed.');
+          console.error(`[AuthContext] ROLE MISMATCH: Stored role is "${foundUser.role}" but attempted role was "${roleAttempt}". Login failed.`);
+          toast({ title: "Login Failed", description: "Role mismatch. Please select the correct role.", variant: "destructive" });
         }
       } else {
-        console.error('[AuthContext] USER NOT FOUND for email (robustly trimmed, lowercased): "', email, '". Login failed.');
+        console.error(`[AuthContext] USER NOT FOUND for email (robustly trimmed, lowercased): |${email}|. Login failed.`);
+        toast({ title: "Login Failed", description: "User not found or incorrect credentials/role.", variant: "destructive" });
       }
     } catch (error) {
         console.error('[AuthContext] Error during login process:', error);
+        toast({ title: "Login Error", description: "An unexpected error occurred.", variant: "destructive" });
     }
 
     console.log('[AuthContext] Overall login outcome: FAILED.');
@@ -93,7 +95,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
     const email = robustTrim(emailInput).toLowerCase();
     const cleanedName = robustTrim(name);
-    const cleanedPrn = prn ? robustTrim(prn).toUpperCase() : undefined; // Ensure PRN is also trimmed and uppercased
+    const cleanedPrn = prn ? robustTrim(prn).toUpperCase() : undefined;
 
     try {
       const existingUser = await getUserByEmail(email); 
@@ -108,13 +110,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email: email,
         name: cleanedName,
         role: role,
+        // Initialize arrays if they are not optional or ensure createUser handles it
+        subjects: [], 
+        semesterAssignments: [],
       };
 
       if (role === 'student') {
-        newUserPayload.prn = cleanedPrn; // Add PRN for students
+        newUserPayload.prn = cleanedPrn;
       }
-      // subjects and semesterAssignments will be initialized as empty arrays by createUser if not provided
-
+      
       const newUser = await apiCreateUser(newUserPayload); 
       setUser(newUser);
       sessionStorage.setItem('campusUser', JSON.stringify(newUser));
@@ -170,3 +174,4 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
