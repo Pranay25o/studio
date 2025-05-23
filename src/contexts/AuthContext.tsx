@@ -39,13 +39,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (email: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
+    console.log('[AuthContext] Attempting login with:', { email, roleAttempt });
     const foundUser = await getUserByEmail(email);
-    if (foundUser && foundUser.role === roleAttempt) {
-      setUser(foundUser);
-      sessionStorage.setItem('campusUser', JSON.stringify(foundUser));
-      setIsLoading(false);
-      return true;
+    console.log('[AuthContext] User found by email:', foundUser);
+
+    if (foundUser) {
+      console.log('[AuthContext] Comparing roles: foundUser.role="', foundUser.role, '", roleAttempt="', roleAttempt, '"');
+      if (foundUser.role === roleAttempt) {
+        console.log('[AuthContext] Login successful for:', foundUser.name);
+        setUser(foundUser);
+        sessionStorage.setItem('campusUser', JSON.stringify(foundUser));
+        setIsLoading(false);
+        return true;
+      } else {
+        console.log('[AuthContext] Role mismatch.');
+      }
+    } else {
+      console.log('[AuthContext] User not found by email.');
     }
+
+    console.log('[AuthContext] Login failed.');
     setIsLoading(false);
     return false;
   };
