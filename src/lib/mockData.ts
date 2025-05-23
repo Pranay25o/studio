@@ -20,7 +20,7 @@ import {
 // #                       🚨 IMPORTANT ATTENTION 🚨                        #
 // #                                                                        #
 // #  THIS FILE USES A MIX OF MOCK DATA (for users, students, marks)        #
-// #  AND FIRESTORE (for systemSubjects, semesters).                        #
+// #  AND FIRESTORE (for semesters). System Subjects are now MOCK again.    #
 // #  AS YOU MIGRATE FEATURES, FUNCTIONS HERE WILL BE UPDATED TO            #
 // #  INTERACT FULLY WITH FIRESTORE.                                        #
 // #                                                                        #
@@ -96,168 +96,32 @@ export let mockStudents: Student[] = [
   },
 ];
 
-// --- System Subject Management Functions (Using Firestore) ---
-const systemSubjectsCollection = collection(db, "systemSubjects");
+// --- System Subject Management Functions (Reverted to Mock) ---
+// Firestore-backed subject management has been removed as per user request.
+// Subjects are now managed via this mock list.
+export let mockSystemSubjects: string[] = [
+  "Mathematics",
+  "Physics",
+  "Chemistry",
+  "Biology",
+  "History",
+  "Computer Science",
+  "English Literature",
+  "Advanced Physics"
+].sort();
 
-export const getAllAvailableSubjects = async (): Promise<string[]> => {
-  try {
-    const q = query(systemSubjectsCollection, orderBy("name"));
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => doc.data().name as string);
-  } catch (error) {
-    console.error("Error fetching system subjects from Firestore:", error);
-    if (error instanceof Error && (error.message.includes("Could not reach Cloud Firestore backend") || error.message.includes("Failed to get document because the client is offline.") || error.message.includes("firestore/unavailable"))) {
-        const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || (db.app.options);
-         if (currentConfig.apiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
-            console.warn("Firestore connection failed for subjects: Firebase config seems to be using placeholder values.");
-            throw new Error("FirebaseMisconfigured");
-        }
-    }
-    return []; 
-  }
+
+export const getAllAvailableSubjects = (): string[] => {
+  // Simulate async if needed later, but for now, direct return from mock.
+  // await new Promise(resolve => setTimeout(resolve, 50));
+  return [...mockSystemSubjects];
 };
 
-export const addSystemSubject = async (subjectName: string): Promise<boolean> => {
-  const trimmedName = subjectName.trim();
-  if (!trimmedName) return false;
-
-  try {
-    const qCheck = query(systemSubjectsCollection, where("nameLower", "==", trimmedName.toLowerCase()));
-    const checkSnapshot = await getDocs(qCheck);
-    if (!checkSnapshot.empty) {
-      console.warn(`Subject "${trimmedName}" already exists in Firestore.`);
-      return false; 
-    }
-    
-    await addDoc(systemSubjectsCollection, { name: trimmedName, nameLower: trimmedName.toLowerCase() });
-    return true;
-  } catch (error) {
-    console.error("Error adding system subject to Firestore:", error);
-    return false;
-  }
-};
-
-export const renameSystemSubject = async (oldName: string, newName: string): Promise<boolean> => {
-  const trimmedOldName = oldName.trim();
-  const trimmedNewName = newName.trim();
-
-  if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false;
-
-  try {
-    const newNameCheckQuery = query(systemSubjectsCollection, where("nameLower", "==", trimmedNewName.toLowerCase()));
-    const newNameCheckSnapshot = await getDocs(newNameCheckQuery);
-    if (!newNameCheckSnapshot.empty) {
-        let isSelf = false;
-        newNameCheckSnapshot.forEach(doc => { if (doc.data().nameLower === trimmedOldName.toLowerCase()) isSelf = true; });
-        if (!isSelf) {
-            console.warn(`New subject name "${trimmedNewName}" already exists in Firestore.`);
-            return false;
-        }
-    }
-    
-    const q = query(systemSubjectsCollection, where("nameLower", "==", trimmedOldName.toLowerCase()));
-    const querySnapshot = await getDocs(q);
-
-    if (querySnapshot.empty) {
-      console.warn(`Subject "${trimmedOldName}" not found for renaming in Firestore.`);
-      return false; 
-    }
-
-    const batch = writeBatch(db);
-    querySnapshot.forEach(docSnapshot => {
-      batch.update(doc(db, "systemSubjects", docSnapshot.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
-    });
-    await batch.commit();
-
-    // Propagate renames to mockUsers and mockMarks (local mock data)
-    // TODO: In a full Firestore app, this would involve updating other collections
-    // or using Cloud Functions for atomicity.
-    mockUsers.forEach(user => {
-      if (user.subjects) {
-        user.subjects = user.subjects.map(s => s.toLowerCase() === trimmedOldName.toLowerCase() ? trimmedNewName : s).sort();
-      }
-      if (user.semesterAssignments) {
-        user.semesterAssignments.forEach(assignment => {
-          assignment.subjects = assignment.subjects.map(s => s.toLowerCase() === trimmedOldName.toLowerCase() ? trimmedNewName : s).sort();
-        });
-      }
-    });
-    mockMarks.forEach(mark => {
-      if (mark.subject.toLowerCase() === trimmedOldName.toLowerCase()) {
-        mark.subject = trimmedNewName;
-      }
-    });
-    mockStudents.forEach(student => {
-      student.marks.forEach(mark => {
-        if (mark.subject.toLowerCase() === trimmedOldName.toLowerCase()) {
-          mark.subject = trimmedNewName;
-        }
-      });
-    });
-
-    return true;
-  } catch (error) {
-    console.error("Error renaming system subject in Firestore:", error);
-    return false;
-  }
-};
-
-export const deleteSystemSubject = async (subjectName: string): Promise<boolean> => {
-  const trimmedName = subjectName.trim();
-  if (!trimmedName) return false;
-
-  try {
-    const q = query(systemSubjectsCollection, where("nameLower", "==", trimmedName.toLowerCase()));
-    const querySnapshot = await getDocs(q);
-
-    if (querySnapshot.empty) {
-      console.warn(`Subject "${trimmedName}" not found for deletion in Firestore.`);
-      return false;
-    }
-
-    const batch = writeBatch(db);
-    querySnapshot.forEach(docSnapshot => {
-      batch.delete(doc(db, "systemSubjects", docSnapshot.id));
-    });
-    await batch.commit(); // Firestore deletion attempt
-    
-    // Attempt to update local mock data.
-    // This part is secondary to the Firestore operation for the SystemSubjectManager.
-    try {
-        const replacementSubjectName = `Archived Subject (${trimmedName})`;
-        mockUsers.forEach(user => {
-          if (user.subjects) {
-            user.subjects = user.subjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase()).sort();
-          }
-          if (user.semesterAssignments) {
-            user.semesterAssignments.forEach(assignment => {
-              assignment.subjects = assignment.subjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase()).sort();
-            });
-          }
-        });
-        mockMarks.forEach(mark => {
-          if (mark.subject.toLowerCase() === trimmedName.toLowerCase()) {
-            mark.subject = replacementSubjectName; 
-          }
-        });
-        mockStudents.forEach(student => {
-          student.marks.forEach(mark => {
-            if (mark.subject.toLowerCase() === trimmedName.toLowerCase()) {
-              mark.subject = replacementSubjectName;
-            }
-          });
-        });
-    } catch (localError) {
-        console.warn("Error updating local mock data after Firestore subject deletion:", localError);
-        // Even if local mock data update fails, the Firestore operation might have succeeded.
-        // The SystemSubjectManager primarily cares about the Firestore state for its list.
-    }
-    return true; // Report success based on Firestore operation attempt
-  } catch (firestoreError) {
-    console.error("Error deleting system subject from Firestore:", firestoreError);
-    return false;
-  }
-};
+// The following functions (addSystemSubject, renameSystemSubject, deleteSystemSubject)
+// that previously interacted with Firestore for system subjects are removed as the
+// admin UI for managing them is removed. If system subjects need to be modified,
+// it would be by directly editing the `mockSystemSubjects` array above for this mock setup.
+// In a real app, these would be managed via a database or a different admin interface.
 
 // --- Semester Management Functions (Using Firestore) ---
 const semestersCollection = collection(db, "semesters");

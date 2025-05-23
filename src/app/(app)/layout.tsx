@@ -38,9 +38,9 @@ import {
   ShieldCheck,
   Users2,
   BookLock,
-  BookOpen,
+  // BookOpen, // Removed as "System Subjects" is removed
   CalendarClock,
-  CalendarPlus // Added CalendarPlus
+  CalendarPlus
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
@@ -209,17 +209,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>
-       <SidebarMenuItem>
-        <SidebarMenuButton
-          asChild
-          isActive={pathname.startsWith("/admin/manage-system-subjects")}
-          tooltip="System Subjects"
-        >
-          <Link href="/admin/manage-system-subjects">
-            <BookOpen /> <span>System Subjects</span>
-          </Link>
-        </SidebarMenuButton>
-      </SidebarMenuItem>
+      {/* System Subjects link removed */}
       <SidebarMenuItem>
         <SidebarMenuButton
           asChild

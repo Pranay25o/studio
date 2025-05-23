@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users2, BookLock, ArrowRight, Activity, BookOpen, CalendarClock, CalendarPlus } from 'lucide-react'; // Added CalendarPlus
+import { Users2, BookLock, ArrowRight, Activity, CalendarClock, CalendarPlus } from 'lucide-react'; // Removed BookOpen
 
 interface FeatureCardProps {
   title: string;
@@ -51,12 +51,6 @@ export default function AdminDashboardPage() {
           description="Assign general academic subjects for users (teachers/admins)."
           href="/admin/manage-teacher-subjects"
           icon={<BookLock className="h-8 w-8" />}
-        />
-         <FeatureCard
-          title="Manage System Subjects"
-          description="Add, rename, or delete subjects available in the entire system."
-          href="/admin/manage-system-subjects"
-          icon={<BookOpen className="h-8 w-8" />}
         />
         <FeatureCard
           title="Manage Semesters"

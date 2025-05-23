@@ -8,9 +8,7 @@ import * as z from 'zod';
 import {
   getAllUsers,
   assignSubjectsToTeacher as apiAssignSubjectsToTeacher,
-  getAllAvailableSubjects, // Now async
-  addSystemSubject, // Now async
-  renameSystemSubject as apiRenameSystemSubject, // Now async
+  getAllAvailableSubjects, // Now synchronous, returns mock data
 } from '@/lib/mockData';
 import type { User } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -27,15 +25,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/contexts/AuthContext';
 import { Badge } from '@/components/ui/badge';
 
-const newSubjectSchema = z.object({
-  newSubjectName: z.string().min(1, "Subject name cannot be empty."),
-});
-type NewSubjectFormData = z.infer<typeof newSubjectSchema>;
-
-const renameSubjectSchema = z.object({
-  updatedSubjectName: z.string().min(1, "Subject name cannot be empty."),
-});
-type RenameSubjectFormData = z.infer<typeof renameSubjectSchema>;
 
 const assignExistingSchema = z.object({
   subjectsToAssign: z.array(z.string()),
@@ -52,22 +41,9 @@ export function TeacherSubjectManager() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string>('');
 
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [subjectToRename, setSubjectToRename] = useState<string | null>(null);
 
   const { toast } = useToast();
-
-  const newSubjectForm = useForm<NewSubjectFormData>({
-    resolver: zodResolver(newSubjectSchema),
-    defaultValues: { newSubjectName: '' },
-  });
-
-  const renameSubjectForm = useForm<RenameSubjectFormData>({
-    resolver: zodResolver(renameSubjectSchema),
-    defaultValues: { updatedSubjectName: '' },
-  });
 
   const assignExistingForm = useForm<AssignExistingFormData>({
     resolver: zodResolver(assignExistingSchema),
@@ -95,10 +71,10 @@ export function TeacherSubjectManager() {
   async function fetchInitialData() {
     setIsLoading(true);
     try {
-      const [fetchedUsers, fetchedSubjects] = await Promise.all([
-        getAllUsers(),
-        getAllAvailableSubjects(), // Now async
-      ]);
+      // getAllAvailableSubjects is now synchronous
+      const fetchedUsers = await getAllUsers();
+      const fetchedSubjects = getAllAvailableSubjects(); 
+      
       setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
       setSystemSubjects(fetchedSubjects);
     } catch (error) {
@@ -121,15 +97,6 @@ export function TeacherSubjectManager() {
     }
   }
   
-  async function refreshSystemSubjects() {
-    try {
-        const fetchedSubjects = await getAllAvailableSubjects(); // Now async
-        setSystemSubjects(fetchedSubjects);
-    } catch (error) {
-        toast({ title: "Error refreshing subjects", description: "Could not update subject list.", variant: "destructive" });
-    }
-  }
-
   const handleUnassignSubject = async (subjectToUnassign: string) => {
     if (!selectedUser) return;
     setIsSubmitting(true);
@@ -144,67 +111,6 @@ export function TeacherSubjectManager() {
       }
     } catch (error) {
       toast({ title: "Error Unassigning Subject", variant: "destructive" });
-    }
-    setIsSubmitting(false);
-  };
-
-  const handleOpenRenameModal = (subject: string) => {
-    setSubjectToRename(subject);
-    renameSubjectForm.setValue('updatedSubjectName', subject);
-    setIsRenameModalOpen(true);
-  };
-
-  const onSubmitRenameSubject = async (data: RenameSubjectFormData) => {
-    if (!subjectToRename) return;
-    setIsSubmitting(true);
-    const currentSystemSubjects = await getAllAvailableSubjects(); // Fetch current subjects
-    if (currentSystemSubjects.map(s => s.toLowerCase()).includes(data.updatedSubjectName.toLowerCase()) && data.updatedSubjectName.toLowerCase() !== subjectToRename.toLowerCase()) {
-      renameSubjectForm.setError('updatedSubjectName', { type: 'manual', message: 'This subject name already exists.' });
-      setIsSubmitting(false);
-      return;
-    }
-    try {
-      await apiRenameSystemSubject(subjectToRename, data.updatedSubjectName); // Now async
-      toast({ title: "Subject Renamed Globally", description: `"${subjectToRename}" is now "${data.updatedSubjectName}" for all users.` });
-      await refreshSystemSubjects();
-      await refreshUserData(selectedUser?.id); 
-      if (loggedInUser?.subjects?.includes(subjectToRename)) { 
-        await refreshAuthUser();
-      }
-      setIsRenameModalOpen(false);
-      setSubjectToRename(null);
-    } catch (error) {
-      toast({ title: "Error Renaming Subject", variant: "destructive" });
-    }
-    setIsSubmitting(false);
-  };
-
-  const onSubmitCreateNewSubject = async (data: NewSubjectFormData) => {
-    if (!selectedUser) return;
-    setIsSubmitting(true);
-    const currentSystemSubjects = await getAllAvailableSubjects(); // Fetch current subjects
-    if (currentSystemSubjects.map(s => s.toLowerCase()).includes(data.newSubjectName.toLowerCase())) {
-      newSubjectForm.setError('newSubjectName', { type: 'manual', message: 'This subject already exists in the system.' });
-      setIsSubmitting(false);
-      return;
-    }
-    try {
-      await addSystemSubject(data.newSubjectName); // Now async, add to system first
-      await refreshSystemSubjects(); // Refresh system subjects list
-      
-      const currentSubjects = selectedUser.subjects || [];
-      const newAssignedSubjects = [...currentSubjects, data.newSubjectName].sort();
-      await apiAssignSubjectsToTeacher(selectedUser.id, newAssignedSubjects); // Assign to user
-      
-      toast({ title: "Subject Created & Assigned", description: `${data.newSubjectName} created and assigned to ${selectedUser.name}.` });
-      await refreshUserData(selectedUser.id);
-      if (selectedUser.id === loggedInUser?.id) {
-        await refreshAuthUser();
-      }
-      setIsCreateModalOpen(false);
-      newSubjectForm.reset();
-    } catch (error) {
-      toast({ title: "Error Creating Subject", variant: "destructive" });
     }
     setIsSubmitting(false);
   };
@@ -230,16 +136,13 @@ export function TeacherSubjectManager() {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading data...</span></div>;
   }
   
-  const assignableSystemSubjects = systemSubjects.filter(s => !selectedUser?.subjects?.includes(s));
-
-
   return (
     <Card className="w-full max-w-3xl mx-auto shadow-xl">
       <CardHeader>
         <CardTitle className="text-2xl flex items-center gap-2">
           <UserCog className="h-6 w-6 text-primary" /> User Subject Assignment
         </CardTitle>
-        <CardDescription>Assign academic subjects to teachers or administrators. You can also create new subjects or rename existing ones globally from here.</CardDescription>
+        <CardDescription>Assign general academic subjects to teachers or administrators.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <div>
@@ -277,9 +180,7 @@ export function TeacherSubjectManager() {
                       <li key={subject} className="flex items-center justify-between p-2 border rounded-md bg-secondary/30">
                         <span className="text-sm">{subject}</span>
                         <div className="space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => handleOpenRenameModal(subject)} disabled={isSubmitting} className="text-xs">
-                            <Edit className="mr-1 h-3 w-3" /> Rename (Global)
-                          </Button>
+                          {/* Rename (Global) and Create New Subject functionality removed */}
                           <Button variant="destructive" size="sm" onClick={() => handleUnassignSubject(subject)} disabled={isSubmitting} className="text-xs">
                             <Trash2 className="mr-1 h-3 w-3" /> Unassign
                           </Button>
@@ -294,12 +195,9 @@ export function TeacherSubjectManager() {
               </CardContent>
             </Card>
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-                <Button onClick={() => setIsAssignModalOpen(true)} variant="outline" className="w-full">
+            <div className="flex justify-start pt-4">
+                <Button onClick={() => setIsAssignModalOpen(true)} variant="outline" className="w-auto">
                     <BookLock className="mr-2 h-4 w-4" /> Assign Existing Subjects
-                </Button>
-                <Button onClick={() => setIsCreateModalOpen(true)} variant="outline" className="w-full">
-                    <BookPlus className="mr-2 h-4 w-4" /> Create New Subject & Assign
                 </Button>
             </div>
           </div>
@@ -314,52 +212,6 @@ export function TeacherSubjectManager() {
             </Alert>
         )}
       </CardContent>
-
-      {/* Create New Subject Modal */}
-      <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Create New Subject & Assign</DialogTitle>
-            <DialogDescription>Enter the name for the new subject. It will be added to the system and assigned to {selectedUser?.name}.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={newSubjectForm.handleSubmit(onSubmitCreateNewSubject)} className="space-y-4">
-            <div>
-              <Label htmlFor="newSubjectName-modal">New Subject Name</Label>
-              <Input id="newSubjectName-modal" {...newSubjectForm.register("newSubjectName")} autoFocus/>
-              {newSubjectForm.formState.errors.newSubjectName && <p className="text-sm text-destructive mt-1">{newSubjectForm.formState.errors.newSubjectName.message}</p>}
-            </div>
-            <DialogFooter>
-              <DialogClose asChild><Button type="button" variant="outline" disabled={isSubmitting}>Cancel</Button></DialogClose>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Create & Assign"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename Subject Modal */}
-      <Dialog open={isRenameModalOpen} onOpenChange={setIsRenameModalOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Rename Subject (Global)</DialogTitle>
-            <DialogDescription>Renaming "{subjectToRename}" to a new name will update it system-wide for all users and marks.</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={renameSubjectForm.handleSubmit(onSubmitRenameSubject)} className="space-y-4">
-            <div>
-              <Label htmlFor="updatedSubjectName-modal">New Subject Name</Label>
-              <Input id="updatedSubjectName-modal" {...renameSubjectForm.register("updatedSubjectName")} autoFocus/>
-              {renameSubjectForm.formState.errors.updatedSubjectName && <p className="text-sm text-destructive mt-1">{renameSubjectForm.formState.errors.updatedSubjectName.message}</p>}
-            </div>
-            <DialogFooter>
-              <DialogClose asChild><Button type="button" variant="outline" disabled={isSubmitting}>Cancel</Button></DialogClose>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : "Rename Globally"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
 
       {/* Assign Existing Subjects Modal */}
         <Dialog open={isAssignModalOpen} onOpenChange={setIsAssignModalOpen}>
@@ -393,7 +245,7 @@ export function TeacherSubjectManager() {
                                                 {subject}
                                             </Label>
                                         </div>
-                                    )) : <p className="text-sm text-muted-foreground">No system subjects available or all are assigned to this user.</p>}
+                                    )) : <p className="text-sm text-muted-foreground">No system subjects available.</p>}
                                 </div>
                             </ScrollArea>
                         )}
