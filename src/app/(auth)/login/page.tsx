@@ -148,10 +148,10 @@ export default function LoginPage() {
               </FormItem>
             )}
           />
-          <Button 
-            type="submit" 
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
-            disabled={!isClient || isLoading}
+          <Button
+            type="submit"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            disabled={isLoading}
           >
             {isClient && isLoading ? "Signing In..." : isClient ? "Sign In" : "Loading..."}
           </Button>
