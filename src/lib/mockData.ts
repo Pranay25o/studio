@@ -1,20 +1,31 @@
 
-import type { Student, User, Mark, Role } from '@/types';
+import type { Student, User, Mark, Role, AssessmentType } from '@/types';
+import { ASSESSMENT_MAX_SCORES } from '@/types';
 
-export const mockUsers: User[] = [
+export let mockUsers: User[] = [
   { id: 'teacher1', email: 'teacher@example.com', name: 'Prof. Ada Lovelace', role: 'teacher', subjects: ['Mathematics', 'Physics'] },
   { id: 'teacher2', email: 'prof.curie@example.com', name: 'Prof. Marie Curie', role: 'teacher', subjects: ['Chemistry', 'Advanced Physics'] },
   { id: 'student1', email: 'student1@example.com', name: 'Alice Smith', role: 'student', prn: 'PRN001' },
   { id: 'student2', email: 'student2@example.com', name: 'Bob Johnson', role: 'student', prn: 'PRN002' },
-  { id: 'admin01', email: 'admin@example.com', name: 'Super Admin', role: 'admin', subjects: [] }, // Admins can also have subjects
+  { id: 'admin01', email: 'admin@example.com', name: 'Super Admin', role: 'admin', subjects: [] },
 ];
 
-export const mockMarks: Mark[] = [
-  { id: 'mark1', studentId: 'PRN001', subject: 'Mathematics', score: 85, maxScore: 100, term: 'Midterm', grade: 'A' },
-  { id: 'mark2', studentId: 'PRN001', subject: 'Physics', score: 78, maxScore: 100, term: 'Midterm', grade: 'B+' },
-  { id: 'mark3', studentId: 'PRN001', subject: 'Mathematics', score: 92, maxScore: 100, term: 'Final', grade: 'A+' },
-  { id: 'mark4', studentId: 'PRN002', subject: 'Mathematics', score: 70, maxScore: 100, term: 'Midterm', grade: 'B' },
-  { id: 'mark5', studentId: 'PRN002', subject: 'Chemistry', score: 65, maxScore: 100, term: 'Midterm', grade: 'C+' },
+export let mockMarks: Mark[] = [
+  // Alice Smith - PRN001
+  { id: 'mark1', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'CA1', score: 8, maxScore: ASSESSMENT_MAX_SCORES.CA1 },
+  { id: 'mark2', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'CA2', score: 7, maxScore: ASSESSMENT_MAX_SCORES.CA2 },
+  { id: 'mark3', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'MidSem', score: 15, maxScore: ASSESSMENT_MAX_SCORES.MidSem },
+  { id: 'mark4', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'EndSem', score: 48, maxScore: ASSESSMENT_MAX_SCORES.EndSem },
+  { id: 'mark5', studentId: 'PRN001', subject: 'Physics', assessmentType: 'CA1', score: 9, maxScore: ASSESSMENT_MAX_SCORES.CA1 },
+  { id: 'mark6', studentId: 'PRN001', subject: 'Physics', assessmentType: 'MidSem', score: 18, maxScore: ASSESSMENT_MAX_SCORES.MidSem },
+  { id: 'mark11', studentId: 'PRN001', subject: 'Physics', assessmentType: 'EndSem', score: 50, maxScore: ASSESSMENT_MAX_SCORES.EndSem },
+
+
+  // Bob Johnson - PRN002
+  { id: 'mark7', studentId: 'PRN002', subject: 'Mathematics', assessmentType: 'CA1', score: 6, maxScore: ASSESSMENT_MAX_SCORES.CA1 },
+  { id: 'mark8', studentId: 'PRN002', subject: 'Mathematics', assessmentType: 'EndSem', score: 40, maxScore: ASSESSMENT_MAX_SCORES.EndSem },
+  { id: 'mark9', studentId: 'PRN002', subject: 'Chemistry', assessmentType: 'CA1', score: 7, maxScore: ASSESSMENT_MAX_SCORES.CA1 },
+  { id: 'mark10', studentId: 'PRN002', subject: 'Chemistry', assessmentType: 'MidSem', score: 12, maxScore: ASSESSMENT_MAX_SCORES.MidSem },
 ];
 
 export let mockStudents: Student[] = [
@@ -41,18 +52,25 @@ export let mockStudents: Student[] = [
 // System-wide list of subjects
 export let mockSystemSubjects: string[] = [
   'Mathematics', 'Physics', 'Chemistry', 'Biology', 'History', 'English Literature', 'Computer Science', 'Advanced Physics'
-];
+].sort();
 
 
 // Helper functions to interact with mock data (simulating API calls)
 export const getStudentByPrn = async (prn: string): Promise<Student | undefined> => {
   await new Promise(resolve => setTimeout(resolve, 300)); // Simulate network delay
-  return mockStudents.find(s => s.id === prn);
+  const student = mockStudents.find(s => s.id === prn);
+  if (student) {
+    return { ...student, marks: mockMarks.filter(m => m.studentId === prn) };
+  }
+  return undefined;
 };
 
 export const getAllStudents = async (): Promise<Student[]> => {
   await new Promise(resolve => setTimeout(resolve, 300));
-  return mockStudents;
+  return mockStudents.map(s => ({
+    ...s,
+    marks: mockMarks.filter(m => m.studentId === s.id)
+  }));
 };
 
 export const getAllTeachers = async (): Promise<User[]> => {
@@ -66,13 +84,15 @@ export const getAllUsers = async (): Promise<User[]> => {
 };
 
 
-export const addMark = async (mark: Omit<Mark, 'id'>): Promise<Mark> => {
+export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
   await new Promise(resolve => setTimeout(resolve, 300));
-  const newMark: Mark = { ...mark, id: `mark${mockMarks.length + 1}` };
+  const newMark: Mark = { ...markData, id: `mark${mockMarks.length + 1}` };
   mockMarks.push(newMark);
-  const studentIndex = mockStudents.findIndex(s => s.id === mark.studentId);
+  const studentIndex = mockStudents.findIndex(s => s.id === markData.studentId);
   if (studentIndex !== -1) {
-    mockStudents[studentIndex].marks.push(newMark);
+    // Ensure the student's local marks array is also updated
+    const studentMarks = mockMarks.filter(m => m.studentId === markData.studentId);
+    mockStudents[studentIndex].marks = studentMarks;
   }
   return newMark;
 };
@@ -87,6 +107,8 @@ export const updateMark = async (updatedMark: Mark): Promise<Mark | undefined> =
       const studentMarkIndex = mockStudents[studentIndex].marks.findIndex(m => m.id === updatedMark.id);
       if (studentMarkIndex !== -1) {
         mockStudents[studentIndex].marks[studentMarkIndex] = updatedMark;
+      } else { // If mark was somehow not in student's list but exists in global, add it
+         mockStudents[studentIndex].marks.push(updatedMark);
       }
     }
     return updatedMark;
@@ -125,7 +147,7 @@ export const updateStudentName = async (prn: string, newName: string): Promise<S
 
 export const getUserByEmail = async (email: string): Promise<User | undefined> => {
   console.log('[getUserByEmail] Received email to search for:', email);
-  await new Promise(resolve => setTimeout(resolve, 100)); // Simulate network delay
+  await new Promise(resolve => setTimeout(resolve, 100)); 
 
   const trimmedEmail = email.trim().toLowerCase();
   console.log('[getUserByEmail] Searching for trimmed email:', trimmedEmail);
@@ -162,7 +184,6 @@ export const createUser = async (userData: Omit<User, 'id'> & { subjects?: strin
     if (existingStudentIndex === -1) {
        mockStudents.push({id: newUser.prn, name: newUser.name, email: newUser.email, marks: [] });
     } else {
-      // If student with PRN already exists (e.g. pre-loaded), update their name/email if user account created later.
       mockStudents[existingStudentIndex].name = newUser.name; 
       mockStudents[existingStudentIndex].email = newUser.email;
     }
@@ -191,6 +212,7 @@ export const addSystemSubject = async (subjectName: string): Promise<boolean> =>
   const trimmedName = subjectName.trim();
   if (trimmedName && !mockSystemSubjects.find(s => s.toLowerCase() === trimmedName.toLowerCase())) {
     mockSystemSubjects.push(trimmedName);
+    mockSystemSubjects.sort(); // Keep it sorted
     return true;
   }
   return false; // Subject already exists or empty name
@@ -201,33 +223,27 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
   const trimmedOldName = oldName.trim();
   const trimmedNewName = newName.trim();
 
-  if (!trimmedOldName || !trimmedNewName || trimmedOldName === trimmedNewName) return false; 
+  if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false; 
   
-  const oldNameExists = mockSystemSubjects.some(s => s.toLowerCase() === trimmedOldName.toLowerCase());
-  const newNameAlreadyExists = mockSystemSubjects.some(s => s.toLowerCase() === trimmedNewName.toLowerCase() && s.toLowerCase() !== trimmedOldName.toLowerCase());
+  const oldNameActualCase = mockSystemSubjects.find(s => s.toLowerCase() === trimmedOldName.toLowerCase());
+  if (!oldNameActualCase) return false; // Old name doesn't exist
 
-  if (!oldNameExists || newNameAlreadyExists) {
-    return false; // Old name doesn't exist or new name (different from old) already exists
-  }
+  const newNameAlreadyExists = mockSystemSubjects.some(s => s.toLowerCase() === trimmedNewName.toLowerCase());
+  if (newNameAlreadyExists) return false; // New name already exists
 
-  // Update in system subjects list (case-insensitive find, exact replace)
-  const oldNameActualCase = mockSystemSubjects.find(s => s.toLowerCase() === trimmedOldName.toLowerCase()) || trimmedOldName;
-  mockSystemSubjects = mockSystemSubjects.map(s => s.toLowerCase() === trimmedOldName.toLowerCase() ? trimmedNewName : s);
+  mockSystemSubjects = mockSystemSubjects.map(s => s.toLowerCase() === trimmedOldName.toLowerCase() ? trimmedNewName : s).sort();
 
-  // Update in users' assigned subjects
   mockUsers.forEach(user => {
     if (user.subjects) {
       user.subjects = user.subjects.map(s => s.toLowerCase() === oldNameActualCase.toLowerCase() ? trimmedNewName : s).sort();
     }
   });
 
-  // Update in marks
   mockMarks.forEach(mark => {
     if (mark.subject.toLowerCase() === oldNameActualCase.toLowerCase()) {
       mark.subject = trimmedNewName;
     }
   });
-  // Update in students' marks (embedded in mockStudents)
   mockStudents.forEach(student => {
     student.marks.forEach(mark => {
       if (mark.subject.toLowerCase() === oldNameActualCase.toLowerCase()) {
@@ -241,35 +257,32 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
 export const deleteSystemSubject = async (subjectName: string): Promise<boolean> => {
   await new Promise(resolve => setTimeout(resolve, 100));
   const trimmedName = subjectName.trim();
-  if (!trimmedName || !mockSystemSubjects.find(s => s.toLowerCase() === trimmedName.toLowerCase())) {
-    return false; // Subject doesn't exist or empty name
-  }
-  const subjectToDeleteActualCase = mockSystemSubjects.find(s => s.toLowerCase() === trimmedName.toLowerCase()) || trimmedName;
+  const subjectToDeleteActualCase = mockSystemSubjects.find(s => s.toLowerCase() === trimmedName.toLowerCase());
 
-  // Remove from system subjects list
+  if (!subjectToDeleteActualCase) {
+    return false; 
+  }
+
   mockSystemSubjects = mockSystemSubjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase());
 
-  // Unassign from users
   mockUsers.forEach(user => {
     if (user.subjects) {
       user.subjects = user.subjects.filter(s => s.toLowerCase() !== subjectToDeleteActualCase.toLowerCase()).sort();
     }
   });
-
-  // Update marks: For this mock, we'll change the subject of marks to a generic "Deleted Subject"
-  // In a real app, you'd have a more robust strategy (e.g., disallow deletion if marks exist, archive, etc.)
+  
+  const replacementSubjectName = `Deleted Subject (${subjectToDeleteActualCase})`;
   mockMarks.forEach(mark => {
     if (mark.subject.toLowerCase() === subjectToDeleteActualCase.toLowerCase()) {
-      mark.subject = `Deleted Subject (${subjectToDeleteActualCase})`; 
+      mark.subject = replacementSubjectName; 
     }
   });
   mockStudents.forEach(student => {
     student.marks.forEach(mark => {
       if (mark.subject.toLowerCase() === subjectToDeleteActualCase.toLowerCase()) {
-        mark.subject = `Deleted Subject (${subjectToDeleteActualCase})`;
+        mark.subject = replacementSubjectName;
       }
     });
   });
   return true;
 };
-

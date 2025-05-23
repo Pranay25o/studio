@@ -1,3 +1,4 @@
+
 export type Role = 'student' | 'teacher' | 'admin';
 
 export interface User {
@@ -9,14 +10,22 @@ export interface User {
   subjects?: string[]; // For teachers, list of subjects they can manage
 }
 
+export type AssessmentType = 'CA1' | 'CA2' | 'MidSem' | 'EndSem';
+
+export const ASSESSMENT_MAX_SCORES: Record<AssessmentType, number> = {
+  CA1: 10,
+  CA2: 10,
+  MidSem: 20,
+  EndSem: 60,
+};
+
 export interface Mark {
   id: string;
   studentId: string; // PRN
   subject: string;
+  assessmentType: AssessmentType;
   score: number;
-  maxScore: number;
-  term: string; // e.g., "Midterm", "Final", "Assignment 1"
-  grade?: string; // Optional, e.g., "A+", "B"
+  maxScore: number; // Will be 10, 20, or 60 based on assessmentType
 }
 
 export interface Student {
@@ -31,13 +40,14 @@ export interface GradeAnomalyInput {
   studentName: string;
   prnNumber: string;
   subjectName: string;
-  grade: number;
-  maxGrade: number;
+  grade: number; // This will now be the score for a specific assessment component
+  maxGrade: number; // This will be the maxScore for that component (10, 20, or 60)
 }
 
 export interface MarksSuggestionInput {
   prn: string;
   name: string;
   subject: string;
-  maxMarks: number;
+  assessmentType: AssessmentType; // Added
+  maxMarks: number; // Max marks for the specific assessmentType
 }

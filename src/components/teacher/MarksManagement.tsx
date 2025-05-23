@@ -16,11 +16,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark } from '@/lib/mockData';
-import type { Mark, Student, MarksSuggestionInput, User } from '@/types';
+import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllAvailableSubjects } from '@/lib/mockData';
+import type { Mark, Student, MarksSuggestionInput, User, AssessmentType } from '@/types';
+import { ASSESSMENT_MAX_SCORES } from '@/types';
 import { generateMarksSuggestions } from '@/ai/flows/generate-marks-suggestions';
 import { PlusCircle, Edit2, Trash2, Lightbulb, Loader2, Search, GraduationCap, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -39,14 +40,22 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
+const assessmentTypes = Object.keys(ASSESSMENT_MAX_SCORES) as AssessmentType[];
 
 const markSchema = z.object({
   studentId: z.string().min(1, "Student PRN is required."),
   subject: z.string().min(1, "Subject is required."),
+  assessmentType: z.enum(assessmentTypes, { required_error: "Assessment type is required." }),
   score: z.coerce.number().min(0, "Score must be non-negative."),
-  maxScore: z.coerce.number().min(1, "Max score must be at least 1."),
-  term: z.string().min(1, "Term is required."),
-  grade: z.string().optional(),
+  maxScore: z.coerce.number().min(1, "Max score must be at least 1."), // Will be validated against assessment type
+}).refine(data => {
+  if (data.assessmentType) {
+    return data.maxScore === ASSESSMENT_MAX_SCORES[data.assessmentType];
+  }
+  return true;
+}, {
+  message: "Max score does not match the selected assessment type.",
+  path: ["maxScore"],
 }).refine(data => data.score <= data.maxScore, {
   message: "Score cannot exceed max score.",
   path: ["score"],
@@ -57,7 +66,8 @@ type MarkFormData = z.infer<typeof markSchema>;
 export function MarksManagement() {
   const { user } = useAuth(); 
   const [students, setStudents] = useState<Student[]>([]);
-  const [allMarks, setAllMarks] = useState<Mark[]>([]);
+  const [allMarks, setAllMarks] = useState<(Mark & {studentName?: string})[]>([]);
+  const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -70,36 +80,66 @@ export function MarksManagement() {
 
   const { control, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<MarkFormData>({
     resolver: zodResolver(markSchema),
-    defaultValues: { studentId: '', subject: '', score: 0, maxScore: 100, term: '', grade: '' },
+    defaultValues: { 
+      studentId: '', 
+      subject: '', 
+      assessmentType: assessmentTypes[0], 
+      score: 0, 
+      maxScore: ASSESSMENT_MAX_SCORES[assessmentTypes[0]],
+    },
   });
 
   const currentStudentId = watch('studentId');
   const currentSubject = watch('subject');
-  const currentMaxScore = watch('maxScore');
+  const currentAssessmentType = watch('assessmentType');
 
   useEffect(() => {
-    fetchData();
+    fetchInitialData();
   }, []);
-
-  useEffect(() => {
-    // Set default subject if user has subjects and form is opened for adding new mark
-    if (!editingMark && canManageAnySubject && userManagedSubjects[0]) {
-      setValue('subject', userManagedSubjects[0]);
-    }
-  }, [isDialogOpen, editingMark, canManageAnySubject, userManagedSubjects, setValue]);
-
-  async function fetchData() {
+  
+  async function fetchInitialData() {
     setIsLoading(true);
     try {
-      const fetchedStudents = await getAllStudents();
+      const [fetchedStudents, fetchedSubjects, allStudentMarks] = await Promise.all([
+        getAllStudents(),
+        getAllAvailableSubjects(),
+        getAllStudents().then(stds => stds.reduce((acc, student) => acc.concat(student.marks.map(m => ({...m, studentName: student.name}))), [] as (Mark & {studentName?: string})[]))
+      ]);
       setStudents(fetchedStudents);
-      const marks = fetchedStudents.reduce((acc, student) => acc.concat(student.marks.map(m => ({...m, studentName: student.name}))), [] as (Mark & {studentName?: string})[]);
-      setAllMarks(marks);
+      setSystemSubjects(fetchedSubjects);
+      setAllMarks(allStudentMarks);
+
+      if (!editingMark && canManageAnySubject && userManagedSubjects[0]) {
+        setValue('subject', userManagedSubjects[0]);
+      }
+      setValue('assessmentType', assessmentTypes[0]);
+      setValue('maxScore', ASSESSMENT_MAX_SCORES[assessmentTypes[0]]);
+
     } catch (error) {
-      toast({ title: "Error fetching data", description: "Could not load students and marks.", variant: "destructive" });
+      toast({ title: "Error fetching data", description: "Could not load initial data for marks management.", variant: "destructive" });
     }
     setIsLoading(false);
   }
+
+  useEffect(() => {
+    if (currentAssessmentType) {
+      setValue('maxScore', ASSESSMENT_MAX_SCORES[currentAssessmentType]);
+    }
+  }, [currentAssessmentType, setValue]);
+
+
+  useEffect(() => {
+    // Set default subject and assessment type if user has subjects and form is opened for adding new mark
+    if (isDialogOpen && !editingMark) {
+      if (canManageAnySubject && userManagedSubjects[0]) {
+        setValue('subject', userManagedSubjects[0]);
+      }
+      const defaultAssessmentType = assessmentTypes[0];
+      setValue('assessmentType', defaultAssessmentType);
+      setValue('maxScore', ASSESSMENT_MAX_SCORES[defaultAssessmentType]);
+      setValue('score', 0); // Reset score
+    }
+  }, [isDialogOpen, editingMark, canManageAnySubject, userManagedSubjects, setValue]);
 
   const isUserAuthorizedForSubject = (subject: string) => {
     return userManagedSubjects.includes(subject);
@@ -111,7 +151,14 @@ export function MarksManagement() {
       return;
     }
     setEditingMark(null);
-    reset({ studentId: '', subject: userManagedSubjects[0] || '', score: 0, maxScore: 100, term: '', grade: '' });
+    const defaultAT = assessmentTypes[0];
+    reset({ 
+      studentId: '', 
+      subject: userManagedSubjects[0] || '', 
+      assessmentType: defaultAT, 
+      score: 0, 
+      maxScore: ASSESSMENT_MAX_SCORES[defaultAT],
+    });
     setIsDialogOpen(true);
   };
 
@@ -124,10 +171,9 @@ export function MarksManagement() {
     reset({
       studentId: mark.studentId,
       subject: mark.subject,
+      assessmentType: mark.assessmentType,
       score: mark.score,
       maxScore: mark.maxScore,
-      term: mark.term,
-      grade: mark.grade || '',
     });
     setIsDialogOpen(true);
   };
@@ -141,7 +187,7 @@ export function MarksManagement() {
     try {
       await apiDeleteMark(mark.id);
       toast({ title: "Mark Deleted", description: "The mark has been successfully deleted." });
-      fetchData(); 
+      fetchInitialData(); 
     } catch (error) {
       toast({ title: "Error Deleting Mark", description: "Could not delete the mark.", variant: "destructive" });
     }
@@ -159,10 +205,17 @@ export function MarksManagement() {
         await apiUpdateMark({ ...editingMark, ...data });
         toast({ title: "Mark Updated", description: "The mark has been successfully updated." });
       } else {
+        // Check if a mark for this student, subject, and assessment type already exists
+        const existingEntry = allMarks.find(m => m.studentId === data.studentId && m.subject === data.subject && m.assessmentType === data.assessmentType);
+        if (existingEntry) {
+            toast({ title: "Duplicate Entry", description: `A mark for ${data.assessmentType} in ${data.subject} for this student already exists. Please edit the existing entry.`, variant: "destructive", duration: 5000 });
+            setIsSubmitting(false);
+            return;
+        }
         await apiAddMark(data);
         toast({ title: "Mark Added", description: "The mark has been successfully added." });
       }
-      fetchData(); 
+      fetchInitialData(); 
       setIsDialogOpen(false);
     } catch (error) {
       toast({ title: "Error Saving Mark", description: "Could not save the mark.", variant: "destructive" });
@@ -171,8 +224,8 @@ export function MarksManagement() {
   };
 
   const handleSuggestMarks = async () => {
-    if (!currentStudentId || !currentSubject || !currentMaxScore) {
-      toast({ title: "Missing Information", description: "Please select a student, subject, and enter max score.", variant: "destructive" });
+    if (!currentStudentId || !currentSubject || !currentAssessmentType) {
+      toast({ title: "Missing Information", description: "Please select student, subject, and assessment type.", variant: "destructive" });
       return;
     }
     if (!isUserAuthorizedForSubject(currentSubject)) {
@@ -187,10 +240,16 @@ export function MarksManagement() {
 
     setIsSubmitting(true);
     try {
-      const input: MarksSuggestionInput = { prn: student.id, name: student.name, subject: currentSubject, maxMarks: currentMaxScore };
+      const input: MarksSuggestionInput = { 
+        prn: student.id, 
+        name: student.name, 
+        subject: currentSubject, 
+        assessmentType: currentAssessmentType,
+        maxMarks: ASSESSMENT_MAX_SCORES[currentAssessmentType] 
+      };
       const suggestion = await generateMarksSuggestions(input);
       setValue('score', suggestion.suggestedMarks);
-      toast({ title: "AI Suggestion", description: `${suggestion.reason} Suggested Marks: ${suggestion.suggestedMarks}` });
+      toast({ title: "AI Suggestion", description: `${suggestion.reason} Suggested Marks for ${currentAssessmentType}: ${suggestion.suggestedMarks}` });
     } catch (error) {
       toast({ title: "AI Suggestion Failed", description: "Could not get AI mark suggestion.", variant: "destructive" });
     }
@@ -199,21 +258,14 @@ export function MarksManagement() {
 
   const filteredMarks = useMemo(() => {
     let marksToFilter = allMarks;
-    // If user is not admin, filter marks by subjects they manage
-    // Admins by default see all marks, unless we want to change this.
-    // For now, if admin has specific subjects assigned, they might prefer to see only those by default.
-    // However, the original request was to manage marks *like a teacher* if subjects are assigned.
-    // Let's keep it simple: if subjects are assigned, they act on those. If not, they act on none (unless we give them full override).
-    // The authorization checks (`isUserAuthorizedForSubject`) handle the actual ability to edit/delete/add.
-    // The search filter is separate.
-
     if (!searchTerm) return marksToFilter;
     return marksToFilter.filter(mark =>
       mark.studentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       mark.studentId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      mark.subject.toLowerCase().includes(searchTerm.toLowerCase())
+      mark.subject.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      mark.assessmentType.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [allMarks, searchTerm, user]);
+  }, [allMarks, searchTerm]);
 
   if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading marks data...</span></div>;
@@ -225,7 +277,7 @@ export function MarksManagement() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <CardTitle className="text-2xl">Marks Management</CardTitle>
-            <CardDescription>Add, edit, or delete student marks for your assigned subjects.</CardDescription>
+            <CardDescription>Add, edit, or delete student marks for CA1, CA2, MidSem, and EndSem components.</CardDescription>
           </div>
           <Button onClick={handleAddMark} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={!canManageAnySubject}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Mark
@@ -244,7 +296,7 @@ export function MarksManagement() {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
                 type="text"
-                placeholder="Search by student name, PRN, or subject..."
+                placeholder="Search by student name, PRN, subject, or assessment type..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10"
@@ -274,10 +326,9 @@ export function MarksManagement() {
               <TableHead>Student PRN</TableHead>
               <TableHead>Student Name</TableHead>
               <TableHead>Subject</TableHead>
-              <TableHead>Term</TableHead>
+              <TableHead>Assessment</TableHead>
               <TableHead className="text-right">Score</TableHead>
               <TableHead className="text-right">Max Score</TableHead>
-              <TableHead className="text-center">Grade</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -289,12 +340,9 @@ export function MarksManagement() {
                 <TableCell>{mark.studentId}</TableCell>
                 <TableCell>{mark.studentName || students.find(s => s.id === mark.studentId)?.name || 'N/A'}</TableCell>
                 <TableCell>{mark.subject}</TableCell>
-                <TableCell>{mark.term}</TableCell>
+                <TableCell><Badge variant="secondary">{mark.assessmentType}</Badge></TableCell>
                 <TableCell className="text-right">{mark.score}</TableCell>
                 <TableCell className="text-right">{mark.maxScore}</TableCell>
-                <TableCell className="text-center">
-                  {mark.grade ? <Badge variant="secondary">{mark.grade}</Badge> : '-'}
-                </TableCell>
                 <TableCell className="text-right space-x-2">
                   <Button variant="outline" size="icon" onClick={() => handleEditMark(mark)} className="hover:text-accent hover:border-accent" disabled={!canEditOrDelete || isSubmitting}>
                     <Edit2 className="h-4 w-4" />
@@ -311,7 +359,7 @@ export function MarksManagement() {
                       <AlertDialogHeader>
                         <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          This action cannot be undone. This will permanently delete the mark for {mark.subject} for student {mark.studentId}.
+                          This action cannot be undone. This will permanently delete the {mark.assessmentType} mark for {mark.subject} for student {mark.studentName || mark.studentId}.
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
@@ -334,9 +382,9 @@ export function MarksManagement() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingMark ? 'Edit Mark' : 'Add New Mark'}</DialogTitle>
+            <DialogTitle>{editingMark ? `Edit Mark for ${editingMark.assessmentType}` : 'Add New Mark Component'}</DialogTitle>
             <DialogDescription>
-              {editingMark ? 'Update the details for this mark.' : 'Enter the details for the new mark.'}
+              {editingMark ? 'Update the details for this mark component.' : 'Enter the details for the new mark component.'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-4">
@@ -364,19 +412,6 @@ export function MarksManagement() {
                 )}
               />
               <Controller
-                name="term"
-                control={control}
-                render={({ field }) => (
-                  <div className="space-y-1">
-                    <Label htmlFor="term">Term</Label>
-                    <Input id="term" placeholder="e.g., Midterm, Final" {...field} />
-                    {errors.term && <p className="text-sm text-destructive">{errors.term.message}</p>}
-                  </div>
-                )}
-              />
-            </div>
-            
-            <Controller
                 name="subject"
                 control={control}
                 render={({ field }) => (
@@ -402,36 +437,50 @@ export function MarksManagement() {
                   </div>
                 )}
               />
-
+            </div>
+            
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-               <div className="space-y-1">
-                <Label htmlFor="maxScore">Max Score</Label>
                 <Controller
-                  name="maxScore"
-                  control={control}
-                  render={({ field }) => <Input id="maxScore" type="number" placeholder="e.g., 100" {...field} />}
+                    name="assessmentType"
+                    control={control}
+                    render={({ field }) => (
+                    <div className="space-y-1">
+                        <Label htmlFor="assessmentType">Assessment Type</Label>
+                        <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark}>
+                        <SelectTrigger id="assessmentType">
+                            <SelectValue placeholder="Select Type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {assessmentTypes.map(type => (
+                            <SelectItem key={type} value={type}>
+                                {type} (Max: {ASSESSMENT_MAX_SCORES[type]})
+                            </SelectItem>
+                            ))}
+                        </SelectContent>
+                        </Select>
+                        {errors.assessmentType && <p className="text-sm text-destructive">{errors.assessmentType.message}</p>}
+                    </div>
+                    )}
                 />
-                {errors.maxScore && <p className="text-sm text-destructive">{errors.maxScore.message}</p>}
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="score">Score</Label>
-                <Controller
-                  name="score"
-                  control={control}
-                  render={({ field }) => <Input id="score" type="number" placeholder="e.g., 85" {...field} />}
-                />
-                 {errors.score && <p className="text-sm text-destructive">{errors.score.message}</p>}
-              </div>
+                 <div className="space-y-1">
+                    <Label htmlFor="maxScore">Max Score</Label>
+                    <Controller
+                    name="maxScore"
+                    control={control}
+                    render={({ field }) => <Input id="maxScore" type="number" {...field} readOnly className="bg-muted/50" />}
+                    />
+                    {errors.maxScore && <p className="text-sm text-destructive">{errors.maxScore.message}</p>}
+                </div>
             </div>
            
             <div className="space-y-1">
-              <Label htmlFor="grade">Grade (Optional)</Label>
+              <Label htmlFor="score">Score Obtained</Label>
               <Controller
-                name="grade"
+                name="score"
                 control={control}
-                render={({ field }) => <Input id="grade" placeholder="e.g., A+, B" {...field} />}
+                render={({ field }) => <Input id="score" type="number" placeholder="e.g., 8" {...field} />}
               />
-              {errors.grade && <p className="text-sm text-destructive">{errors.grade.message}</p>}
+                {errors.score && <p className="text-sm text-destructive">{errors.score.message}</p>}
             </div>
             
             <Button 
@@ -439,10 +488,10 @@ export function MarksManagement() {
               variant="outline" 
               onClick={handleSuggestMarks} 
               className="w-full" 
-              disabled={isSubmitting || !currentStudentId || !currentSubject || !currentMaxScore || !canManageAnySubject || !isUserAuthorizedForSubject(currentSubject)}
+              disabled={isSubmitting || !currentStudentId || !currentSubject || !currentAssessmentType || !canManageAnySubject || !isUserAuthorizedForSubject(currentSubject)}
             >
               {isSubmitting && watch('score') === undefined ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Lightbulb className="mr-2 h-4 w-4" />}
-              Suggest Marks (AI)
+              Suggest Score (AI)
             </Button>
           <DialogFooter>
             <DialogClose asChild>
