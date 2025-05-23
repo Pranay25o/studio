@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AtSign, KeyRound, User as UserIcon, Info, Users, BookUser } from "lucide-react";
+import { AtSign, KeyRound, User as UserIcon, Info, BookUser } from "lucide-react"; // Removed Users
 import React, { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Role, User } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { getAllTeachers } from "@/lib/mockData";
+import { getAllUsers } from "@/lib/mockData"; // Changed from getAllTeachers to getAllUsers
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -50,6 +50,11 @@ export default function RegisterPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [teachersList, setTeachersList] = useState<User[]>([]);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -65,13 +70,15 @@ export default function RegisterPage() {
   const selectedRole = form.watch("role");
 
   useEffect(() => {
-    if (selectedRole === 'student') {
+    if (isClient && selectedRole === 'student') {
       const fetchTeachers = async () => {
         try {
-          const teachers = await getAllTeachers();
-          setTeachersList(teachers);
+          // Fetch all users and filter for teachers/admins, as students might want to know who is teaching
+          const allUsersData = await getAllUsers();
+          const assignableTeachers = allUsersData.filter(u => u.role === 'teacher' || u.role === 'admin');
+          setTeachersList(assignableTeachers);
         } catch (error) {
-          console.error("Failed to fetch teachers:", error);
+          console.error("Failed to fetch teachers/admins:", error);
           toast({ title: "Error", description: "Could not load teacher information.", variant: "destructive" });
         }
       };
@@ -79,7 +86,7 @@ export default function RegisterPage() {
     } else {
       setTeachersList([]);
     }
-  }, [selectedRole, toast]);
+  }, [selectedRole, toast, isClient]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
@@ -91,7 +98,7 @@ export default function RegisterPage() {
 
     const studentPrn = values.role === 'student' && values.prn
                        ? values.prn.trim().toUpperCase()
-                       : values.prn;
+                       : undefined; // ensure PRN is only passed for students
 
     const success = await register(values.name, values.email, values.password, values.role as Role, studentPrn);
     setIsLoading(false);
@@ -105,6 +112,14 @@ export default function RegisterPage() {
     } else {
       // Toast for failure is handled by AuthContext or createUser
     }
+  }
+
+  if (!isClient) {
+    return (
+      <div className="text-center">
+        <p>Loading form...</p>
+      </div>
+    );
   }
 
   return (
@@ -170,7 +185,12 @@ export default function RegisterPage() {
                 <FormLabel className="text-foreground/80">I want to register as a...</FormLabel>
                 <FormControl>
                   <RadioGroup
-                    onValueChange={field.onChange}
+                    onValueChange={(value) => {
+                        field.onChange(value);
+                        if (value !== 'student') {
+                            form.setValue('prn', ''); // Clear PRN if not student
+                        }
+                    }}
                     defaultValue={field.value}
                     className="flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:space-x-4"
                   >
@@ -215,10 +235,10 @@ export default function RegisterPage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-lg flex items-center gap-2 text-accent">
                       <BookUser className="h-5 w-5" />
-                      Available Teachers
+                      Available Teachers &amp; Admins
                     </CardTitle>
                     <CardDescription>
-                      Here are the teachers at CampusMarks.
+                      Here are the teaching staff at CampusMarks.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -226,7 +246,7 @@ export default function RegisterPage() {
                       <ul className="space-y-2">
                         {teachersList.map(teacher => (
                           <li key={teacher.id} className="p-2 border-b text-sm">
-                            <p className="font-semibold">{teacher.name}</p>
+                            <p className="font-semibold">{teacher.name} <span className="text-xs text-muted-foreground">({teacher.role})</span></p>
                             {teacher.subjects && teacher.subjects.length > 0 && (
                               <p className="text-xs text-muted-foreground">
                                 General Subjects: {teacher.subjects.join(', ')}
@@ -237,6 +257,9 @@ export default function RegisterPage() {
                                 Semester Subjects: {teacher.semesterAssignments.map(sa => `${sa.semester}: ${sa.subjects.join(', ')}`).join('; ')}
                                </p>
                             )}
+                             {(!teacher.subjects || teacher.subjects.length === 0) && (!teacher.semesterAssignments || teacher.semesterAssignments.length === 0) && (
+                                <p className="text-xs text-muted-foreground">No specific subjects listed.</p>
+                             )}
                           </li>
                         ))}
                       </ul>

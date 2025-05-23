@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AtSign, KeyRound, Users, Shield } from "lucide-react";
+import { AtSign, KeyRound } from "lucide-react"; // Removed Users, Shield as they are not used in this form
 
 import { Button } from "@/components/ui/button";
 import {
@@ -22,7 +22,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Role } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react"; // Added useEffect
+import { useState, useEffect } from "react";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Invalid email address." }),
@@ -35,10 +35,10 @@ export default function LoginPage() {
   const { login } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
-  const [isClient, setIsClient] = useState(false); // State to track client-side mount
+  const [isClient, setIsClient] = useState(false);
 
   useEffect(() => {
-    setIsClient(true); // Set to true once component has mounted on the client
+    setIsClient(true);
   }, []);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -65,12 +65,16 @@ export default function LoginPage() {
         router.push("/admin/dashboard");
       }
     } else {
-      toast({
-        title: "Login Failed",
-        description: "Invalid credentials or role. Please try again.",
-        variant: "destructive",
-      });
+      // Toast for login failure is handled by AuthContext or getUserByEmail now if specific
     }
+  }
+
+  if (!isClient) {
+    return (
+      <div className="text-center">
+        <p>Loading form...</p>
+      </div>
+    );
   }
 
   return (
@@ -153,7 +157,7 @@ export default function LoginPage() {
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
             disabled={isLoading}
           >
-            {isClient && isLoading ? "Signing In..." : isClient ? "Sign In" : "Loading..."}
+            {isLoading ? "Signing In..." : "Sign In"}
           </Button>
         </form>
       </Form>
