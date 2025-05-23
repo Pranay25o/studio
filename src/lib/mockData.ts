@@ -118,7 +118,8 @@ export const updateStudentName = async (prn: string, newName: string): Promise<S
 
 export const getUserByEmail = async (email: string): Promise<User | undefined> => {
   await new Promise(resolve => setTimeout(resolve, 300));
-  return mockUsers.find(u => u.email === email);
+  // Make email comparison case-insensitive
+  return mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
 }
 
 export const createUser = async (userData: Omit<User, 'id'> & { subjects?: string[] }): Promise<User> => {
