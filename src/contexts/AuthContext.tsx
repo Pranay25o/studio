@@ -22,6 +22,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const robustTrim = (str: string | undefined): string => {
   if (typeof str !== 'string') return '';
+  // This regex handles various whitespace characters including Unicode ones like non-breaking space and byte order mark.
   return str.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
 };
 
@@ -48,16 +49,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
     
-    const cleanedEmailInput = robustTrim(emailInput);
-    const email = cleanedEmailInput.toLowerCase();
+    console.log('[AuthContext] LOGIN ATTEMPT: Raw emailInput="', emailInput, '", Length:', emailInput?.length, 'RoleAttempt="', roleAttempt, '"');
 
-    console.log('[AuthContext] LOGIN ATTEMPT: Email (robustly trimmed, lowercased)="', email, '", RoleAttempt="', roleAttempt, '"');
+    const trimmedEmailBeforeLowercase = robustTrim(emailInput);
+    console.log('[AuthContext] After robustTrim: trimmedEmailBeforeLowercase="', trimmedEmailBeforeLowercase, '", Length:', trimmedEmailBeforeLowercase?.length);
+    
+    const email = trimmedEmailBeforeLowercase.toLowerCase();
+    console.log('[AuthContext] After toLowerCase: final email for lookup="', email, '", Length:', email?.length);
+
+
+    console.log('[AuthContext] Attempting to find user with final email="', email, '" and roleAttempt="', roleAttempt, '" in Firestore.');
     
     try {
-      const foundUser = await getUserByEmail(email); // Now async from Firestore
+      // getUserByEmail expects an already trimmed and lowercased email
+      const foundUser = await getUserByEmail(email); 
       
       if (foundUser) {
-        console.log('[AuthContext] USER FOUND: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '"');
+        console.log('[AuthContext] USER FOUND in Firestore: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '"');
         console.log('[AuthContext] COMPARING ROLES: StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ') vs RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
         
         if (foundUser.role === roleAttempt) {
@@ -85,31 +93,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
     const email = robustTrim(emailInput).toLowerCase();
     const cleanedName = robustTrim(name);
-    const cleanedPrn = robustTrim(prn).toUpperCase();
+    const cleanedPrn = prn ? robustTrim(prn).toUpperCase() : undefined; // Ensure PRN is also trimmed and uppercased
 
     try {
-      const existingUser = await getUserByEmail(email); // Check Firestore
+      const existingUser = await getUserByEmail(email); 
       if (existingUser) {
+        toast({ title: "Registration Failed", description: `User with email ${email} already exists.`, variant: "destructive" });
         console.warn(`[AuthContext] Registration failed: User with email ${email} already exists.`);
         setIsLoading(false);
         return false; 
       }
       
-      // For students, if PRN is provided, ensure it's not already taken by another student
-      if (role === 'student' && cleanedPrn) {
-          const studentWithPrn = await getUserByEmail(cleanedPrn); // This is not right, need a getStudentByPrn or similar
-          // Simplified: Let's assume createUser handles PRN uniqueness for students or errors out.
-          // More robust check: query users collection for role 'student' and matching PRN.
-      }
+      const newUserPayload: Omit<User, 'id'> = {
+        email: email,
+        name: cleanedName,
+        role: role,
+      };
 
-      const newUser = await apiCreateUser({ email: email, name: cleanedName, role, prn: role === 'student' ? cleanedPrn : undefined }); // Now async from Firestore
+      if (role === 'student') {
+        newUserPayload.prn = cleanedPrn; // Add PRN for students
+      }
+      // subjects and semesterAssignments will be initialized as empty arrays by createUser if not provided
+
+      const newUser = await apiCreateUser(newUserPayload); 
       setUser(newUser);
       sessionStorage.setItem('campusUser', JSON.stringify(newUser));
       setIsLoading(false);
       return true;
     } catch (error: any) {
       console.error('[AuthContext] Registration error:', error);
-      // Let createUser error propagate for specific messages (e.g. PRN exists)
       toast({ title: "Registration Failed", description: error.message || "An error occurred during registration.", variant: "destructive" });
       setIsLoading(false);
       return false;
@@ -126,7 +138,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (user?.email) {
       console.log('[AuthContext] Attempting to refresh user session for:', user.email);
       try {
-        const latestUserData = await getUserByEmail(user.email); // Now async from Firestore
+        const latestUserData = await getUserByEmail(user.email); 
         if (latestUserData) {
           setUser(latestUserData);
           sessionStorage.setItem('campusUser', JSON.stringify(latestUserData));
@@ -134,7 +146,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Session Updated", description: "Your user details and permissions have been refreshed." });
         } else {
           console.warn('[AuthContext] Could not find user data to refresh session for:', user.email, 'Logging out.');
-          logout(); // User might have been deleted
+          logout(); 
         }
       } catch (error) {
           console.error('[AuthContext] Error refreshing user session:', error);
@@ -158,5 +170,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
-    
