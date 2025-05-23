@@ -1,28 +1,32 @@
 
 import type { Student, User, Mark, Role, AssessmentType, Semester, TeacherSemesterAssignment } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
-import { db } from './firebaseConfig'; // Import Firestore instance
-import { 
-  collection, 
-  getDocs, 
-  addDoc, 
-  query, 
-  where, 
-  doc, 
-  updateDoc, 
+import { db } from './firebaseConfig';
+import {
+  collection,
+  getDocs,
+  addDoc,
+  query,
+  where,
+  doc,
+  updateDoc,
   deleteDoc,
   orderBy,
-  writeBatch
+  writeBatch,
+  getDoc,
+  QueryConstraint,
+  Timestamp, // For potential future use with timestamps
+  runTransaction
 } from "firebase/firestore";
 
 // ##########################################################################
 // #                                                                        #
 // #       🚨 IMPORTANT: FIREBASE CONFIGURATION REQUIRED 🚨                 #
 // #                                                                        #
-// #  This app uses Firebase Firestore for SOME data (semesters).           #
+// #  This app uses Firebase Firestore for data.                            #
 // #  Ensure `src/lib/firebaseConfig.ts` has your ACTUAL Firebase project   #
-// #  credentials. Failure to do so will prevent Firestore-dependent        #
-// #  features from working.                                                #
+// #  credentials. Failure to do so will prevent Firestore features from    #
+// #  working.                                                              #
 // #                                                                        #
 // #  Placeholder values (like "YOUR_API_KEY_HERE") MUST be replaced.       #
 // #  Check the comments in `src/lib/firebaseConfig.ts` for instructions.   #
@@ -30,103 +34,168 @@ import {
 // ##########################################################################
 
 
-export let mockUsers: User[] = [
-  { 
-    id: 'teacher1', 
-    email: 'teacher@example.com', 
-    name: 'Prof. Ada Lovelace', 
-    role: 'teacher', 
-    subjects: ['Mathematics', 'Physics'], // General oversight subjects
-    semesterAssignments: [
-      { semester: "Fall 2023", subjects: ['Mathematics', 'Physics'] },
-      { semester: "Spring 2024", subjects: ['Mathematics'] }
-    ]
-  },
-  { 
-    id: 'teacher2', 
-    email: 'prof.curie@example.com', 
-    name: 'Prof. Marie Curie', 
-    role: 'teacher', 
-    subjects: ['Chemistry', 'Advanced Physics'],
-    semesterAssignments: [
-      { semester: "Fall 2023", subjects: ['Chemistry'] },
-      { semester: "Spring 2024", subjects: ['Chemistry', 'Advanced Physics'] }
-    ]
-  },
-  { id: 'student1', email: 'student1@example.com', name: 'Alice Smith', role: 'student', prn: 'PRN001' },
-  { id: 'student2', email: 'student2@example.com', name: 'Bob Johnson', role: 'student', prn: 'PRN002' },
-  { id: 'admin01', email: 'admin@example.com', name: 'Super Admin', role: 'admin', subjects: ['Mathematics', 'Physics', 'Chemistry', 'Advanced Physics'], semesterAssignments: [
-      { semester: "Fall 2023", subjects: ['Mathematics', 'Physics',  'Chemistry'] },
-      { semester: "Spring 2024", subjects: ['Mathematics', 'Advanced Physics', 'Chemistry'] }
-  ] },
-];
-
-export let mockMarks: Mark[] = [
-  // Alice Smith - PRN001
-  { id: 'mark1', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'CA1', score: 8, maxScore: ASSESSMENT_MAX_SCORES.CA1, semester: "Fall 2023" },
-  { id: 'mark2', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'CA2', score: 7, maxScore: ASSESSMENT_MAX_SCORES.CA2, semester: "Fall 2023" },
-  { id: 'mark3', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'MidSem', score: 15, maxScore: ASSESSMENT_MAX_SCORES.MidSem, semester: "Fall 2023" },
-  { id: 'mark4', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'EndSem', score: 48, maxScore: ASSESSMENT_MAX_SCORES.EndSem, semester: "Fall 2023" },
-  
-  { id: 'mark5', studentId: 'PRN001', subject: 'Physics', assessmentType: 'CA1', score: 9, maxScore: ASSESSMENT_MAX_SCORES.CA1, semester: "Fall 2023" },
-  { id: 'mark6', studentId: 'PRN001', subject: 'Physics', assessmentType: 'MidSem', score: 18, maxScore: ASSESSMENT_MAX_SCORES.MidSem, semester: "Fall 2023" },
-  { id: 'mark11', studentId: 'PRN001', subject: 'Physics', assessmentType: 'EndSem', score: 50, maxScore: ASSESSMENT_MAX_SCORES.EndSem, semester: "Fall 2023" },
-
-  { id: 'mark12', studentId: 'PRN001', subject: 'Mathematics', assessmentType: 'CA1', score: 9, maxScore: ASSESSMENT_MAX_SCORES.CA1, semester: "Spring 2024" }, // Alice, Maths, Spring 2024
-
-  // Bob Johnson - PRN002
-  { id: 'mark7', studentId: 'PRN002', subject: 'Mathematics', assessmentType: 'CA1', score: 6, maxScore: ASSESSMENT_MAX_SCORES.CA1, semester: "Fall 2023" },
-  { id: 'mark8', studentId: 'PRN002', subject: 'Mathematics', assessmentType: 'EndSem', score: 40, maxScore: ASSESSMENT_MAX_SCORES.EndSem, semester: "Fall 2023" },
-  { id: 'mark9', studentId: 'PRN002', subject: 'Chemistry', assessmentType: 'CA1', score: 7, maxScore: ASSESSMENT_MAX_SCORES.CA1, semester: "Spring 2024" },
-  { id: 'mark10', studentId: 'PRN002', subject: 'Chemistry', assessmentType: 'MidSem', score: 12, maxScore: ASSESSMENT_MAX_SCORES.MidSem, semester: "Spring 2024" },
-];
-
-export let mockStudents: Student[] = [
-  {
-    id: 'PRN001',
-    name: 'Alice Smith',
-    email: 'student1@example.com',
-    marks: mockMarks.filter(m => m.studentId === 'PRN001'),
-  },
-  {
-    id: 'PRN002',
-    name: 'Bob Johnson',
-    email: 'student2@example.com',
-    marks: mockMarks.filter(m => m.studentId === 'PRN002'),
-  },
-  {
-    id: 'PRN003',
-    name: 'Charlie Brown',
-    email: 'student3@example.com',
-    marks: [], // No marks initially for Charlie
-  },
-];
-
-// --- System Subject Management Functions (MOCK DATA) ---
-// Firestore-backed subject management has been removed.
-// Subjects are now managed via this mock list.
-export let mockSystemSubjects: string[] = [
-  "Mathematics",
-  "Physics",
-  "Chemistry",
-  "Biology",
-  "History",
-  "Computer Science",
-  "English Literature",
-  "Advanced Physics" // Ensure this is available if assigned
-].sort();
+// --- Collection References ---
+const usersCollectionRef = collection(db, "users");
+const marksCollectionRef = collection(db, "marks");
+const systemSubjectsCollectionRef = collection(db, "systemSubjects");
+const semestersCollectionRef = collection(db, "semesters");
 
 
-export const getAllAvailableSubjects = (): string[] => {
-  // Simulate async if needed later, but for now, direct return from mock.
-  // await new Promise(resolve => setTimeout(resolve, 50));
-  return [...mockSystemSubjects];
+// --- System Subject Management Functions (Firestore-backed) ---
+export const getAllAvailableSubjects = async (): Promise<string[]> => {
+  try {
+    const q = query(systemSubjectsCollectionRef, orderBy("name"));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => doc.data().name as string);
+  } catch (error: any) {
+    console.error("Error fetching system subjects from Firestore:", error);
+    const currentConfigApiKey = (typeof window !== "undefined" && (window as any).firebase?.app?.options?.apiKey) || db.app.options.apiKey;
+    if (currentConfigApiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
+        console.warn("Firestore connection failed for system subjects: Firebase config seems to be using placeholder values.");
+        throw new Error("FirebaseMisconfigured");
+    }
+    return [];
+  }
+};
+
+export const addSystemSubject = async (subjectName: string): Promise<boolean> => {
+  const trimmedName = subjectName.trim();
+  if (!trimmedName) return false;
+  try {
+    const qCheck = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedName.toLowerCase()));
+    const checkSnapshot = await getDocs(qCheck);
+    if (!checkSnapshot.empty) {
+      console.warn(`System subject "${trimmedName}" already exists in Firestore.`);
+      return false;
+    }
+    await addDoc(systemSubjectsCollectionRef, { name: trimmedName, nameLower: trimmedName.toLowerCase() });
+    return true;
+  } catch (error) {
+    console.error("Error adding system subject to Firestore:", error);
+    return false;
+  }
+};
+
+export const renameSystemSubject = async (oldName: string, newName: string): Promise<boolean> => {
+  const trimmedOldName = oldName.trim();
+  const trimmedNewName = newName.trim();
+  if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false;
+
+  try {
+    const newNameCheckQuery = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedNewName.toLowerCase()));
+    const newNameCheckSnapshot = await getDocs(newNameCheckQuery);
+    if (!newNameCheckSnapshot.empty && newNameCheckSnapshot.docs.some(d => d.data().nameLower !== trimmedOldName.toLowerCase())) {
+      console.warn(`New subject name "${trimmedNewName}" already exists in Firestore and is not the item being renamed.`);
+      return false;
+    }
+
+    const qOld = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedOldName.toLowerCase()));
+    const oldSnapshot = await getDocs(qOld);
+    if (oldSnapshot.empty) {
+      console.warn(`System subject "${trimmedOldName}" not found for renaming in Firestore.`);
+      return false;
+    }
+
+    const batch = writeBatch(db);
+    oldSnapshot.forEach(docSnapshot => {
+      batch.update(doc(db, "systemSubjects", docSnapshot.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
+    });
+    
+    // Also update in users' general subjects and semester assignments, and in marks
+    // This part becomes more complex with Firestore. We'll need to query and update.
+    const usersSnapshot = await getDocs(usersCollectionRef);
+    usersSnapshot.forEach(userDoc => {
+      const userData = userDoc.data() as User;
+      let userModified = false;
+      if (userData.subjects && userData.subjects.includes(trimmedOldName)) {
+        userData.subjects = userData.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort();
+        userModified = true;
+      }
+      if (userData.semesterAssignments) {
+        userData.semesterAssignments.forEach(sa => {
+          if (sa.subjects.includes(trimmedOldName)) {
+            sa.subjects = sa.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort();
+            userModified = true;
+          }
+        });
+      }
+      if (userModified) {
+        batch.update(doc(db, "users", userDoc.id), { subjects: userData.subjects, semesterAssignments: userData.semesterAssignments });
+      }
+    });
+
+    const marksQuery = query(marksCollectionRef, where("subject", "==", trimmedOldName));
+    const marksSnapshot = await getDocs(marksQuery);
+    marksSnapshot.forEach(markDoc => {
+      batch.update(doc(db, "marks", markDoc.id), { subject: trimmedNewName });
+    });
+
+    await batch.commit();
+    return true;
+  } catch (error) {
+    console.error("Error renaming system subject in Firestore and related data:", error);
+    return false;
+  }
+};
+
+export const deleteSystemSubject = async (subjectName: string): Promise<boolean> => {
+  const trimmedName = subjectName.trim();
+  if (!trimmedName) return false;
+  try {
+    const q = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedName.toLowerCase()));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+      console.warn(`System subject "${trimmedName}" not found for deletion in Firestore.`);
+      return false;
+    }
+
+    const batch = writeBatch(db);
+    querySnapshot.forEach(docSnapshot => {
+      batch.delete(doc(db, "systemSubjects", docSnapshot.id));
+    });
+
+    // Also update in users' general subjects and semester assignments, and in marks (e.g., remove or nullify)
+    const usersSnapshot = await getDocs(usersCollectionRef);
+    usersSnapshot.forEach(userDoc => {
+      const userData = userDoc.data() as User;
+      let userModified = false;
+      if (userData.subjects && userData.subjects.includes(trimmedName)) {
+        userData.subjects = userData.subjects.filter(s => s !== trimmedName).sort();
+        userModified = true;
+      }
+      if (userData.semesterAssignments) {
+        userData.semesterAssignments.forEach(sa => {
+          if (sa.subjects.includes(trimmedName)) {
+            sa.subjects = sa.subjects.filter(s => s !== trimmedName).sort();
+            userModified = true;
+          }
+        });
+        // Remove semester assignments if they become empty
+        userData.semesterAssignments = userData.semesterAssignments.filter(sa => sa.subjects.length > 0);
+      }
+      if (userModified) {
+        batch.update(doc(db, "users", userDoc.id), { subjects: userData.subjects, semesterAssignments: userData.semesterAssignments });
+      }
+    });
+    
+    // For marks, you might choose to delete them or mark them as related to a deleted subject.
+    // For simplicity, we'll delete marks associated with this subject. This is a destructive operation.
+    const marksQuery = query(marksCollectionRef, where("subject", "==", trimmedName));
+    const marksSnapshot = await getDocs(marksQuery);
+    marksSnapshot.forEach(markDoc => {
+      batch.delete(doc(db, "marks", markDoc.id));
+    });
+    
+    await batch.commit();
+    return true;
+  } catch (error) {
+    console.error("Error deleting system subject from Firestore and related data:", error);
+    return false;
+  }
 };
 
 
 // --- Semester Management Functions (Using Firestore) ---
-const semestersCollectionRef = collection(db, "semesters"); // Renamed for clarity
-
 export const getSemesters = async (): Promise<Semester[]> => {
   try {
     const q = query(semestersCollectionRef, orderBy("name"));
@@ -134,14 +203,12 @@ export const getSemesters = async (): Promise<Semester[]> => {
     return querySnapshot.docs.map(doc => doc.data().name as string);
   } catch (error: any) {
     console.error("Error fetching semesters from Firestore:", error);
-    // Check for specific misconfiguration error related to API key
     const currentConfigApiKey = (typeof window !== "undefined" && (window as any).firebase?.app?.options?.apiKey) || db.app.options.apiKey;
     if (currentConfigApiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
         console.warn("Firestore connection failed for semesters: Firebase config seems to be using placeholder values.");
         throw new Error("FirebaseMisconfigured");
     }
-    // For other errors, return empty or rethrow as appropriate
-    return []; 
+    return [];
   }
 };
 
@@ -149,317 +216,373 @@ export const addSemester = async (semesterName: string): Promise<boolean> => {
   const trimmedName = semesterName.trim();
   if (!trimmedName) return false;
   try {
-    // Check if the semester already exists (case-insensitive)
     const qCheck = query(semestersCollectionRef, where("nameLower", "==", trimmedName.toLowerCase()));
     const checkSnapshot = await getDocs(qCheck);
     if (!checkSnapshot.empty) {
       console.warn(`Semester "${trimmedName}" already exists in Firestore.`);
-      return false; // Indicate that the semester was not added because it exists
+      return false;
     }
-    // Add the new semester
     await addDoc(semestersCollectionRef, { name: trimmedName, nameLower: trimmedName.toLowerCase() });
-    return true; // Indicate success
+    return true;
   } catch (error) {
     console.error("Error adding semester to Firestore:", error);
-    return false; // Indicate failure
+    return false;
   }
 };
 
 export const renameSemester = async (oldName: string, newName: string): Promise<boolean> => {
   const trimmedOldName = oldName.trim();
   const trimmedNewName = newName.trim();
-
-  if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) {
-    // If names are empty or the same (case-insensitive), consider it a no-op or invalid operation
-    return false;
-  }
+  if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false;
 
   try {
-    // Check if the new name already exists (excluding the current item being renamed)
     const newNameCheckQuery = query(semestersCollectionRef, where("nameLower", "==", trimmedNewName.toLowerCase()));
     const newNameCheckSnapshot = await getDocs(newNameCheckQuery);
-    if (!newNameCheckSnapshot.empty) {
-        let isSelf = false;
-        // Ensure we are not conflicting with another existing semester
-        for (const docSnapshot of newNameCheckSnapshot.docs) {
-            if (docSnapshot.data().nameLower !== trimmedOldName.toLowerCase()) {
-                 console.warn(`New semester name "${trimmedNewName}" already exists in Firestore and is not the item being renamed.`);
-                 return false; // New name conflicts with another existing semester
-            }
-        }
+    if (!newNameCheckSnapshot.empty && newNameCheckSnapshot.docs.some(d => d.data().nameLower !== trimmedOldName.toLowerCase())) {
+        console.warn(`New semester name "${trimmedNewName}" already exists in Firestore and is not the item being renamed.`);
+        return false;
     }
     
-    // Find the document(s) for the old semester name
-    const q = query(semestersCollectionRef, where("nameLower", "==", trimmedOldName.toLowerCase()));
-    const querySnapshot = await getDocs(q);
-
-    if (querySnapshot.empty) {
+    const qOld = query(semestersCollectionRef, where("nameLower", "==", trimmedOldName.toLowerCase()));
+    const oldSnapshot = await getDocs(qOld);
+    if (oldSnapshot.empty) {
       console.warn(`Semester "${trimmedOldName}" not found for renaming in Firestore.`);
-      return false; // Old name not found
+      return false;
     }
 
     const batch = writeBatch(db);
-    querySnapshot.forEach(docSnapshot => {
+    oldSnapshot.forEach(docSnapshot => {
       batch.update(doc(db, "semesters", docSnapshot.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
     });
-    await batch.commit();
-    
-    // Update mockUsers that might have assignments with this semester
-    mockUsers.forEach(user => {
-      if (user.semesterAssignments) {
-        user.semesterAssignments.forEach(assignment => {
-          if (assignment.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
-            assignment.semester = trimmedNewName;
+
+    // Update users' semesterAssignments and marks' semester field
+    const usersSnapshot = await getDocs(usersCollectionRef);
+    usersSnapshot.forEach(userDoc => {
+      const userData = userDoc.data() as User;
+      if (userData.semesterAssignments) {
+        let modified = false;
+        userData.semesterAssignments.forEach(sa => {
+          if (sa.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
+            sa.semester = trimmedNewName;
+            modified = true;
           }
         });
+        if (modified) {
+          batch.update(doc(db, "users", userDoc.id), { semesterAssignments: userData.semesterAssignments });
+        }
       }
     });
-    // Update mockMarks that might reference this semester
-     mockMarks.forEach(mark => {
-        if (mark.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
-            mark.semester = trimmedNewName;
-        }
-    });
-    // Update mockStudents' marks arrays
-    mockStudents.forEach(student => {
-        student.marks.forEach(mark => {
-            if(mark.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
-                mark.semester = trimmedNewName;
-            }
-        });
-    });
 
-
-    return true; // Indicate success
+    const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedOldName)); // Assuming exact match for old semester name
+    const marksSnapshot = await getDocs(marksQuery);
+    marksSnapshot.forEach(markDoc => {
+      batch.update(doc(db, "marks", markDoc.id), { semester: trimmedNewName });
+    });
+    
+    await batch.commit();
+    return true;
   } catch (error) {
-    console.error("Error renaming semester in Firestore:", error);
-    return false; // Indicate failure
+    console.error("Error renaming semester in Firestore and related data:", error);
+    return false;
   }
 };
 
 export const deleteSemester = async (semesterName: string): Promise<boolean> => {
   const trimmedName = semesterName.trim();
   if (!trimmedName) return false;
-
   try {
     const q = query(semestersCollectionRef, where("nameLower", "==", trimmedName.toLowerCase()));
     const querySnapshot = await getDocs(q);
-
     if (querySnapshot.empty) {
       console.warn(`Semester "${trimmedName}" not found for deletion in Firestore.`);
-      return false; // Not found
+      return false;
     }
 
     const batch = writeBatch(db);
     querySnapshot.forEach(docSnapshot => {
       batch.delete(doc(db, "semesters", docSnapshot.id));
     });
+
+    // Update users' semesterAssignments and delete marks for this semester
+    const usersSnapshot = await getDocs(usersCollectionRef);
+    usersSnapshot.forEach(userDoc => {
+      const userData = userDoc.data() as User;
+      if (userData.semesterAssignments) {
+        const updatedAssignments = userData.semesterAssignments.filter(sa => sa.semester.toLowerCase() !== trimmedName.toLowerCase());
+        if (updatedAssignments.length !== userData.semesterAssignments.length) {
+          batch.update(doc(db, "users", userDoc.id), { semesterAssignments: updatedAssignments });
+        }
+      }
+    });
+
+    const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedName)); // Assuming exact match
+    const marksSnapshot = await getDocs(marksQuery);
+    marksSnapshot.forEach(markDoc => {
+      batch.delete(doc(db, "marks", markDoc.id));
+    });
+
     await batch.commit();
-
-    // Update mockUsers: remove assignments for this semester
-    mockUsers.forEach(user => {
-      if (user.semesterAssignments) {
-        user.semesterAssignments = user.semesterAssignments.filter(
-          assignment => assignment.semester.toLowerCase() !== trimmedName.toLowerCase()
-        );
-      }
-    });
-    // Update mockMarks: remove marks for this semester
-    // This is a destructive operation on marks; consider if this is desired or if they should be archived/handled differently.
-    const initialMarksLength = mockMarks.length;
-    mockMarks = mockMarks.filter(mark => mark.semester.toLowerCase() !== trimmedName.toLowerCase());
-    console.log(`Deleted ${initialMarksLength - mockMarks.length} marks associated with semester ${trimmedName}`);
-
-    // Update mockStudents: remove marks for this semester from each student's list
-    mockStudents.forEach(student => {
-        student.marks = student.marks.filter(mark => mark.semester.toLowerCase() !== trimmedName.toLowerCase());
-    });
-
-
-    return true; // Indicate success
-  } catch (error)
-    {
-    console.error("Error deleting semester from Firestore:", error);
-    return false; // Indicate failure
-  }
-};
-
-
-// --- Existing Mock Functions (for users, students, marks - to be migrated later) ---
-
-export const getStudentByPrn = async (prn: string): Promise<Student | undefined> => {
-  await new Promise(resolve => setTimeout(resolve, 100)); // Simulate network delay
-  const student = mockStudents.find(s => s.id === prn);
-  if (student) {
-    // Ensure marks are up-to-date from the global mockMarks array
-    const studentMarks = mockMarks.filter(m => m.studentId === prn);
-    return { ...student, marks: studentMarks };
-  }
-  return undefined;
-};
-
-export const getAllStudents = async (): Promise<Student[]> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  return mockStudents.map(s => ({
-    ...s,
-    marks: mockMarks.filter(m => m.studentId === s.id) // Ensure fresh marks
-  }));
-};
-
-export const getAllTeachers = async (): Promise<User[]> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  return mockUsers.filter(user => user.role === 'teacher');
-};
-
-export const getAllUsers = async (): Promise<User[]> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  return [...mockUsers];
-};
-
-
-export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const newMark: Mark = { ...markData, id: `mark${mockMarks.length + 1}${Date.now()}` }; // Make ID more unique
-  mockMarks.push(newMark);
-  const studentIndex = mockStudents.findIndex(s => s.id === markData.studentId);
-  if (studentIndex !== -1) {
-    // Ensure the student's marks array is also updated directly for consistency
-    // as some parts of the app might read from student.marks directly before a full refresh
-    mockStudents[studentIndex].marks.push(newMark);
-  }
-  return newMark;
-};
-
-export const updateMark = async (updatedMark: Mark): Promise<Mark | undefined> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const markIndex = mockMarks.findIndex(m => m.id === updatedMark.id);
-  if (markIndex !== -1) {
-    mockMarks[markIndex] = updatedMark;
-    const studentIndex = mockStudents.findIndex(s => s.id === updatedMark.studentId);
-    if (studentIndex !== -1) {
-      const studentMarkIndex = mockStudents[studentIndex].marks.findIndex(m => m.id === updatedMark.id);
-      if (studentMarkIndex !== -1) {
-        mockStudents[studentIndex].marks[studentMarkIndex] = updatedMark;
-      } else { 
-         // This case should ideally not happen if data is consistent, but as a fallback:
-         mockStudents[studentIndex].marks.push(updatedMark);
-      }
-    }
-    return updatedMark;
-  }
-  return undefined;
-};
-
-export const deleteMark = async (markId: string): Promise<boolean> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const markIndex = mockMarks.findIndex(m => m.id === markId);
-  if (markIndex !== -1) {
-    const studentId = mockMarks[markIndex].studentId;
-    mockMarks.splice(markIndex, 1);
-    const studentIndex = mockStudents.findIndex(s => s.id === studentId);
-    if (studentIndex !== -1) {
-      mockStudents[studentIndex].marks = mockStudents[studentIndex].marks.filter(m => m.id !== markId);
-    }
     return true;
+  } catch (error) {
+    console.error("Error deleting semester from Firestore and related data:", error);
+    return false;
   }
-  return false;
 };
 
-export const updateStudentName = async (prn: string, newName: string): Promise<Student | undefined> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const studentIndex = mockStudents.findIndex(s => s.id === prn);
-  if (studentIndex !== -1) {
-    mockStudents[studentIndex].name = newName;
-    const userIndex = mockUsers.findIndex(u => u.prn === prn); // Check if a corresponding user exists
-    if (userIndex !== -1 && mockUsers[userIndex].role === 'student') {
-      mockUsers[userIndex].name = newName;
-    }
-    return mockStudents[studentIndex];
-  }
-  return undefined;
-};
-
+// --- User Management Functions (Firestore-backed) ---
 export const getUserByEmail = async (emailInput: string): Promise<User | undefined> => {
   const trimmedEmail = emailInput.trim().toLowerCase();
   console.log('[getUserByEmail] Received email to search for (trimmed, lowercased):', trimmedEmail);
-  await new Promise(resolve => setTimeout(resolve, 50)); 
-  
-  const foundUser = mockUsers.find(u => u.email.toLowerCase() === trimmedEmail);
-  if (foundUser) {
-    console.log('[getUserByEmail] Found user (from MOCK):', JSON.stringify(foundUser));
-  } else {
-    console.log('[getUserByEmail] User NOT found for email (from MOCK - trimmed, case-insensitive):', trimmedEmail);
-  }
-  return foundUser;
-}
-
-export const createUser = async (userData: Omit<User, 'id'> & { subjects?: string[], semesterAssignments?: TeacherSemesterAssignment[] }): Promise<User> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const newUser: User = { 
-    ...userData, 
-    id: `user${mockUsers.length + 1}${Date.now()}`, // Make ID more unique
-    subjects: userData.subjects || [],
-    semesterAssignments: userData.semesterAssignments || [] 
-  };
-  if (userData.role === 'student' && !userData.prn) {
-    // Generate a simple PRN if not provided for a student
-    newUser.prn = `PRN${String(mockStudents.length + 1).padStart(3, '0')}${Date.now().toString().slice(-3)}`;
-  } else if (userData.role === 'student' && userData.prn) {
-    newUser.prn = userData.prn.trim().toUpperCase(); // Ensure PRN is uppercase
-  }
-  
-  mockUsers.push(newUser);
-
-  // If a student is created, ensure they are also added to the mockStudents list
-  // or updated if they already exist by PRN.
-  if (newUser.role === 'student' && newUser.prn) {
-    const existingStudentIndex = mockStudents.findIndex(s => s.id === newUser.prn);
-    if (existingStudentIndex === -1) {
-       mockStudents.push({id: newUser.prn, name: newUser.name, email: newUser.email, marks: [] });
-    } else {
-      // If student with PRN exists, update their name and email if different
-      mockStudents[existingStudentIndex].name = newUser.name; 
-      mockStudents[existingStudentIndex].email = newUser.email; // Assuming email on student record is desired
+  try {
+    const q = query(usersCollectionRef, where("email", "==", trimmedEmail));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+      const userDoc = querySnapshot.docs[0];
+      const userData = userDoc.data() as Omit<User, 'id'>;
+      console.log('[getUserByEmail] Found user (from Firestore):', JSON.stringify({ id: userDoc.id, ...userData }));
+      return { id: userDoc.id, ...userData };
     }
+    console.log('[getUserByEmail] User NOT found for email (from Firestore):', trimmedEmail);
+    return undefined;
+  } catch (error) {
+    console.error("Error fetching user by email from Firestore:", error);
+    return undefined;
   }
-  return newUser;
-}
+};
+
+export const createUser = async (userData: Omit<User, 'id' | 'subjects' | 'semesterAssignments'> & { subjects?: string[], semesterAssignments?: TeacherSemesterAssignment[] }): Promise<User> => {
+  try {
+    const userToCreate: Omit<User, 'id'> = {
+      email: userData.email.trim().toLowerCase(),
+      name: userData.name.trim(),
+      role: userData.role,
+      prn: userData.role === 'student' && userData.prn ? userData.prn.trim().toUpperCase() : undefined,
+      subjects: userData.subjects || [],
+      semesterAssignments: userData.semesterAssignments || [],
+    };
+
+    // For students, if PRN is not provided, generate one (this might need a more robust unique generation in a real app)
+    if (userToCreate.role === 'student' && !userToCreate.prn) {
+      userToCreate.prn = `PRN${Date.now().toString().slice(-6)}`; // Simple PRN generation
+    }
+    
+    // Check if student PRN already exists if role is student
+    if (userToCreate.role === 'student' && userToCreate.prn) {
+        const prnCheckQuery = query(usersCollectionRef, where("prn", "==", userToCreate.prn), where("role", "==", "student"));
+        const prnCheckSnapshot = await getDocs(prnCheckQuery);
+        if (!prnCheckSnapshot.empty) {
+            throw new Error(`Student with PRN ${userToCreate.prn} already exists.`);
+        }
+    }
+
+
+    const docRef = await addDoc(usersCollectionRef, userToCreate);
+    return { id: docRef.id, ...userToCreate };
+  } catch (error) {
+    console.error("Error creating user in Firestore:", error);
+    throw error; // Re-throw to be caught by AuthContext
+  }
+};
+
+export const getAllUsers = async (): Promise<User[]> => {
+  try {
+    const querySnapshot = await getDocs(usersCollectionRef);
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+  } catch (error) {
+    console.error("Error fetching all users from Firestore:", error);
+    return [];
+  }
+};
+
+export const getAllTeachers = async (): Promise<User[]> => {
+  try {
+    const q = query(usersCollectionRef, where("role", "in", ["teacher", "admin"])); // Admins can also be teachers
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+  } catch (error) {
+    console.error("Error fetching teachers from Firestore:", error);
+    return [];
+  }
+};
 
 export const assignSubjectsToTeacher = async (userId: string, subjects: string[]): Promise<User | undefined> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const userIndex = mockUsers.findIndex(u => u.id === userId && (u.role === 'teacher' || u.role === 'admin'));
-  if (userIndex !== -1) {
-    mockUsers[userIndex].subjects = [...subjects].sort();
-    return mockUsers[userIndex];
+  try {
+    const userDocRef = doc(db, "users", userId);
+    const userDocSnap = await getDoc(userDocRef);
+    if (!userDocSnap.exists() || (userDocSnap.data().role !== 'teacher' && userDocSnap.data().role !== 'admin')) {
+      console.warn(`User ${userId} not found or not a teacher/admin.`);
+      return undefined;
+    }
+    await updateDoc(userDocRef, { subjects: [...subjects].sort() });
+    const updatedUserDoc = await getDoc(userDocRef); // Re-fetch to get updated data
+    return { id: updatedUserDoc.id, ...updatedUserDoc.data() } as User;
+  } catch (error) {
+    console.error("Error assigning subjects to teacher in Firestore:", error);
+    return undefined;
   }
-  return undefined;
 };
 
 export const assignSubjectsToTeacherForSemester = async (userId: string, semester: Semester, subjects: string[]): Promise<User | undefined> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  const userIndex = mockUsers.findIndex(u => u.id === userId && (u.role === 'teacher' || u.role === 'admin'));
-  if (userIndex === -1) return undefined;
+  try {
+    const userDocRef = doc(db, "users", userId);
+    
+    await runTransaction(db, async (transaction) => {
+      const userDocSnap = await transaction.get(userDocRef);
+      if (!userDocSnap.exists() || (userDocSnap.data().role !== 'teacher' && userDocSnap.data().role !== 'admin')) {
+        throw new Error(`User ${userId} not found or not a teacher/admin.`);
+      }
 
-  const user = mockUsers[userIndex];
-  if (!user.semesterAssignments) {
-    user.semesterAssignments = [];
+      const userData = userDocSnap.data() as User;
+      let semesterAssignments = userData.semesterAssignments || [];
+      const existingAssignmentIndex = semesterAssignments.findIndex(sa => sa.semester === semester);
+      const sortedSubjects = [...subjects].sort();
+
+      if (existingAssignmentIndex !== -1) {
+        if (sortedSubjects.length === 0) {
+          semesterAssignments.splice(existingAssignmentIndex, 1);
+        } else {
+          semesterAssignments[existingAssignmentIndex].subjects = sortedSubjects;
+        }
+      } else if (sortedSubjects.length > 0) {
+        semesterAssignments.push({ semester, subjects: sortedSubjects });
+        semesterAssignments.sort((a,b) => a.semester.localeCompare(b.semester));
+      }
+      transaction.update(userDocRef, { semesterAssignments });
+    });
+
+    const updatedUserDoc = await getDoc(userDocRef); // Re-fetch to get updated data
+    return { id: updatedUserDoc.id, ...updatedUserDoc.data() } as User;
+
+  } catch (error) {
+    console.error("Error assigning subjects to teacher for semester in Firestore:", error);
+    return undefined;
   }
-
-  const existingSemesterAssignmentIndex = user.semesterAssignments.findIndex(sa => sa.semester === semester);
-  const sortedSubjects = [...subjects].sort();
-
-  if (existingSemesterAssignmentIndex !== -1) {
-    if (sortedSubjects.length === 0) { 
-      // If no subjects are provided for an existing assignment, remove the assignment
-      user.semesterAssignments.splice(existingSemesterAssignmentIndex, 1);
-    } else {
-      user.semesterAssignments[existingSemesterAssignmentIndex].subjects = sortedSubjects;
-    }
-  } else if (sortedSubjects.length > 0) { 
-    // Only add a new assignment if there are subjects to assign
-    user.semesterAssignments.push({ semester, subjects: sortedSubjects });
-    user.semesterAssignments.sort((a, b) => a.semester.localeCompare(b.semester)); 
-  }
-  
-  return user;
 };
+
+
+// --- Student and Mark Management Functions (Firestore-backed) ---
+export const getAllStudents = async (): Promise<Student[]> => {
+  try {
+    const studentUsersQuery = query(usersCollectionRef, where("role", "==", "student"));
+    const studentUsersSnapshot = await getDocs(studentUsersQuery);
+    
+    const students: Student[] = [];
+    for (const userDoc of studentUsersSnapshot.docs) {
+      const userData = userDoc.data() as User;
+      if (!userData.prn) continue; // Should not happen if PRN is mandatory for students
+
+      const marksQuery = query(marksCollectionRef, where("studentId", "==", userData.prn));
+      const marksSnapshot = await getDocs(marksQuery);
+      const studentMarks: Mark[] = marksSnapshot.docs.map(markDoc => ({
+        id: markDoc.id,
+        ...markDoc.data()
+      } as Mark));
+      
+      students.push({
+        id: userData.prn, // Student ID is PRN
+        name: userData.name,
+        email: userData.email,
+        marks: studentMarks,
+      });
+    }
+    return students;
+  } catch (error) {
+    console.error("Error fetching all students from Firestore:", error);
+    return [];
+  }
+};
+
+export const getStudentByPrn = async (prn: string): Promise<Student | undefined> => {
+  try {
+    const studentUserQuery = query(usersCollectionRef, where("role", "==", "student"), where("prn", "==", prn));
+    const studentUserSnapshot = await getDocs(studentUserQuery);
+
+    if (studentUserSnapshot.empty) {
+      console.warn(`Student user with PRN ${prn} not found.`);
+      return undefined;
+    }
+    const userDoc = studentUserSnapshot.docs[0];
+    const userData = userDoc.data() as User;
+
+    const marksQuery = query(marksCollectionRef, where("studentId", "==", prn));
+    const marksSnapshot = await getDocs(marksQuery);
+    const studentMarks: Mark[] = marksSnapshot.docs.map(markDoc => ({
+      id: markDoc.id,
+      ...markDoc.data()
+    } as Mark));
+
+    return {
+      id: userData.prn!,
+      name: userData.name,
+      email: userData.email,
+      marks: studentMarks,
+    };
+  } catch (error) {
+    console.error(`Error fetching student by PRN ${prn} from Firestore:`, error);
+    return undefined;
+  }
+};
+
+export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
+  try {
+    // Ensure studentId (PRN) exists
+    const studentQuery = query(usersCollectionRef, where("prn", "==", markData.studentId), where("role", "==", "student"));
+    const studentSnapshot = await getDocs(studentQuery);
+    if (studentSnapshot.empty) {
+        throw new Error(`Student with PRN ${markData.studentId} not found. Cannot add mark.`);
+    }
+
+    const docRef = await addDoc(marksCollectionRef, markData);
+    return { id: docRef.id, ...markData };
+  } catch (error) {
+    console.error("Error adding mark to Firestore:", error);
+    throw error;
+  }
+};
+
+export const updateMark = async (updatedMark: Mark): Promise<Mark | undefined> => {
+  try {
+    const markDocRef = doc(db, "marks", updatedMark.id);
+    const { id, ...markDataToUpdate } = updatedMark; // Firestore update doesn't need the id in data
+    await updateDoc(markDocRef, markDataToUpdate);
+    return updatedMark;
+  } catch (error) {
+    console.error("Error updating mark in Firestore:", error);
+    return undefined;
+  }
+};
+
+export const deleteMark = async (markId: string): Promise<boolean> => {
+  try {
+    const markDocRef = doc(db, "marks", markId);
+    await deleteDoc(markDocRef);
+    return true;
+  } catch (error) {
+    console.error("Error deleting mark from Firestore:", error);
+    return false;
+  }
+};
+
+export const updateStudentName = async (prn: string, newName: string): Promise<Student | undefined> => {
+  try {
+    const studentUserQuery = query(usersCollectionRef, where("role", "==", "student"), where("prn", "==", prn));
+    const studentUserSnapshot = await getDocs(studentUserQuery);
+
+    if (studentUserSnapshot.empty) {
+      console.warn(`Student user with PRN ${prn} not found for name update.`);
+      return undefined;
+    }
+    const userDocToUpdate = studentUserSnapshot.docs[0];
+    const userDocRef = doc(db, "users", userDocToUpdate.id);
+    await updateDoc(userDocRef, { name: newName });
+
+    // Re-fetch the student data to return it in Student format
+    return await getStudentByPrn(prn);
+
+  } catch (error) {
+    console.error(`Error updating student name for PRN ${prn} in Firestore:`, error);
+    return undefined;
+  }
+};
+
+    
