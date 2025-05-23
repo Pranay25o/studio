@@ -34,6 +34,7 @@ export interface Mark {
   assessmentType: AssessmentType;
   score: number;
   maxScore: number; // Will be 10, 20, or 60 based on assessmentType
+  semester: Semester; // Added semester field
 }
 
 export interface Student {
@@ -59,3 +60,4 @@ export interface MarksSuggestionInput {
   assessmentType: AssessmentType; // Added
   maxMarks: number; // Max marks for the specific assessmentType
 }
+
