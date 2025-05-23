@@ -38,16 +38,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
+  const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
-    console.log('[AuthContext] LOGIN ATTEMPT: Email="', email, '", RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
+    const email = emailInput.trim(); // Trim whitespace from email
+    console.log('[AuthContext] LOGIN ATTEMPT: Email (trimmed)="', email, '", RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
     
     const foundUser = await getUserByEmail(email);
     
     if (foundUser) {
       console.log('[AuthContext] USER FOUND: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ')');
       
-      console.log('[AuthContext] COMPARING ROLES: StoredRole="', foundUser.role, '" vs RoleAttempt="', roleAttempt, '"');
+      console.log('[AuthContext] COMPARING ROLES: StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ') vs RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
       if (foundUser.role === roleAttempt) {
         console.log('[AuthContext] LOGIN SUCCESSFUL for user:', foundUser.name);
         setUser(foundUser);
@@ -58,7 +59,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.error('[AuthContext] ROLE MISMATCH: Stored role is "', foundUser.role, '" but attempted role was "', roleAttempt, '". Login failed.');
       }
     } else {
-      console.error('[AuthContext] USER NOT FOUND for email: "', email, '". Login failed.');
+      console.error('[AuthContext] USER NOT FOUND for email (trimmed): "', email, '". Login failed.');
     }
 
     console.log('[AuthContext] Overall login outcome: FAILED.');
@@ -68,12 +69,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const register = async (name: string, email: string, _pass: string, role: Role, prn?: string): Promise<boolean> => {
     setIsLoading(true);
-    const existingUser = await getUserByEmail(email);
+    const existingUser = await getUserByEmail(email.trim());
     if (existingUser) {
       setIsLoading(false);
       return false; // User already exists
     }
-    const newUser = await apiCreateUser({ email, name, role, prn });
+    const newUser = await apiCreateUser({ email: email.trim(), name, role, prn });
     setUser(newUser);
     sessionStorage.setItem('campusUser', JSON.stringify(newUser));
     setIsLoading(false);
@@ -100,3 +101,4 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
