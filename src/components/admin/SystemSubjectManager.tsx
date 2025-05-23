@@ -6,19 +6,18 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import {
-  getSemesters,
-  addSemester,
-  renameSemester,
-  deleteSemester,
+  getAllAvailableSubjects,
+  addSystemSubject,
+  renameSystemSubject,
+  deleteSystemSubject,
 } from '@/lib/mockData';
-import type { Semester } from '@/types';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
-import { Loader2, CalendarDays, PlusCircle, Edit, Trash2, AlertCircle, Wifi, WifiOff, HelpCircle } from 'lucide-react';
+import { Loader2, BookOpen, PlusCircle, Edit, Trash2, AlertCircle, Wifi, WifiOff, HelpCircle } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,151 +33,151 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Alert, AlertTitle as UIAlertTitle, AlertDescription as UIAlertDescription } from '../ui/alert';
 import { Badge } from '@/components/ui/badge';
 
-const semesterSchema = z.object({
-  semesterName: z.string().min(3, "Semester name must be at least 3 characters long (e.g., 'Fall 2024')."),
+const subjectSchema = z.object({
+  subjectName: z.string().min(3, "Subject name must be at least 3 characters long."),
 });
-type SemesterFormData = z.infer<typeof semesterSchema>;
+type SubjectFormData = z.infer<typeof subjectSchema>;
 
 type FirestoreStatus = 'initial' | 'checking' | 'connected' | 'error' | 'misconfigured';
 
-export function SemesterManager() {
-  const [semesters, setSemesters] = useState<Semester[]>([]);
+export function SystemSubjectManager() {
+  const [subjects, setSubjects] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
-  const [semesterToEdit, setSemesterToEdit] = useState<Semester | null>(null);
+  const [subjectToEdit, setSubjectToEdit] = useState<string | null>(null);
   const [firestoreStatus, setFirestoreStatus] = useState<FirestoreStatus>('initial');
-  const [totalSemestersLoaded, setTotalSemestersLoaded] = useState(0);
+  const [totalSubjectsLoaded, setTotalSubjectsLoaded] = useState(0);
   const [componentReady, setComponentReady] = useState(false);
 
   const { toast } = useToast();
-  const form = useForm<SemesterFormData>({
-    resolver: zodResolver(semesterSchema),
+  const form = useForm<SubjectFormData>({
+    resolver: zodResolver(subjectSchema),
   });
 
-  useEffect(() => {
+ useEffect(() => {
     setComponentReady(true);
   }, []);
 
   useEffect(() => {
     if (componentReady) {
-      loadSemesters();
+      loadSubjects();
     }
   }, [componentReady]);
 
-  async function loadSemesters() {
+  async function loadSubjects() {
     setIsLoading(true);
     setFirestoreStatus('checking');
-    setSemesters([]);
-    setTotalSemestersLoaded(0);
+    setSubjects([]);
+    setTotalSubjectsLoaded(0);
 
     try {
-      const fetchedSemesters = await getSemesters();
-      setSemesters(fetchedSemesters);
-      setTotalSemestersLoaded(fetchedSemesters.length);
+      const fetchedSubjects = await getAllAvailableSubjects();
+      setSubjects(fetchedSubjects);
+      setTotalSubjectsLoaded(fetchedSubjects.length);
       setFirestoreStatus('connected');
     } catch (error: any) {
-      console.error("Error loading semesters:", error);
+      console.error("Error loading system subjects:", error);
       if (error.message === "FirebaseMisconfigured") {
          setFirestoreStatus('misconfigured');
          toast({ title: "Firebase Misconfigured!", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
       } else {
         setFirestoreStatus('error');
-        toast({ title: "Error Loading Semesters", description: "Could not fetch semesters from Firestore. Check console for details.", variant: "destructive" });
+        toast({ title: "Error Loading Subjects", description: "Could not fetch system subjects from Firestore. Check console for details.", variant: "destructive" });
       }
     }
     setIsLoading(false);
   }
 
   const handleOpenAddModal = () => {
-    form.reset({ semesterName: '' });
+    form.reset({ subjectName: '' });
     setIsAddModalOpen(true);
   };
 
-  const handleOpenRenameModal = (semester: Semester) => {
-    setSemesterToEdit(semester);
-    form.reset({ semesterName: semester });
+  const handleOpenRenameModal = (subject: string) => {
+    setSubjectToEdit(subject);
+    form.reset({ subjectName: subject });
     setIsRenameModalOpen(true);
   };
 
-  const onSubmitAdd = async (data: SemesterFormData) => {
+  const onSubmitAdd = async (data: SubjectFormData) => {
     setIsSubmitting(true);
     try {
-      const success = await addSemester(data.semesterName);
+      const success = await addSystemSubject(data.subjectName);
       if (success) {
-        toast({ title: "Semester Added", description: `"${data.semesterName}" has been added.` });
+        toast({ title: "Subject Added", description: `"${data.subjectName}" has been added.` });
         setIsAddModalOpen(false);
-        if (componentReady) await loadSemesters();
+        if (componentReady) await loadSubjects();
       } else {
-        toast({ title: "Error Adding Semester", description: `Could not add "${data.semesterName}". It might already exist.`, variant: "destructive" });
+        toast({ title: "Error Adding Subject", description: `Could not add "${data.subjectName}". It might already exist.`, variant: "destructive" });
       }
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
-        toast({ title: "Firebase Misconfigured!", description: "Cannot add semester. Update firebaseConfig.ts.", variant: "destructive", duration: 10000 });
+        toast({ title: "Firebase Misconfigured!", description: "Cannot add subject. Update firebaseConfig.ts.", variant: "destructive", duration: 10000 });
         setFirestoreStatus('misconfigured');
         setIsAddModalOpen(false);
       } else {
-        toast({ title: "Error Adding Semester", description: `An unexpected error occurred.`, variant: "destructive" });
+        toast({ title: "Error Adding Subject", description: `An unexpected error occurred.`, variant: "destructive" });
       }
     }
     setIsSubmitting(false);
   };
 
-  const onSubmitRename = async (data: SemesterFormData) => {
-    if (!semesterToEdit) return;
+  const onSubmitRename = async (data: SubjectFormData) => {
+    if (!subjectToEdit) return;
     setIsSubmitting(true);
     try {
-      const success = await renameSemester(semesterToEdit, data.semesterName);
+      const success = await renameSystemSubject(subjectToEdit, data.subjectName);
       if (success) {
-        toast({ title: "Semester Renamed", description: `"${semesterToEdit}" is now "${data.semesterName}".` });
+        toast({ title: "Subject Renamed", description: `"${subjectToEdit}" is now "${data.subjectName}".` });
         setIsRenameModalOpen(false);
-        setSemesterToEdit(null);
-        if (componentReady) await loadSemesters();
+        setSubjectToEdit(null);
+        if (componentReady) await loadSubjects();
       } else {
-        toast({ title: "Error Renaming Semester", description: `Could not rename "${semesterToEdit}". New name might exist.`, variant: "destructive" });
+        toast({ title: "Error Renaming Subject", description: `Could not rename "${subjectToEdit}". New name might exist.`, variant: "destructive" });
       }
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
-        toast({ title: "Firebase Misconfigured!", description: "Cannot rename semester. Update firebaseConfig.ts.", variant: "destructive", duration: 10000 });
+        toast({ title: "Firebase Misconfigured!", description: "Cannot rename subject. Update firebaseConfig.ts.", variant: "destructive", duration: 10000 });
         setFirestoreStatus('misconfigured');
         setIsRenameModalOpen(false);
       } else {
-        toast({ title: "Error Renaming Semester", description: `An unexpected error occurred.`, variant: "destructive" });
+        toast({ title: "Error Renaming Subject", description: `An unexpected error occurred.`, variant: "destructive" });
       }
     }
     setIsSubmitting(false);
   };
 
-  const handleDeleteSemester = async (semesterName: string) => {
+  const handleDeleteSubject = async (subjectName: string) => {
     setIsSubmitting(true);
     try {
-      const success = await deleteSemester(semesterName);
+      const success = await deleteSystemSubject(subjectName);
       if (success) {
-        toast({ title: "Semester Deleted", description: `"${semesterName}" has been deleted.` });
-        if (componentReady) await loadSemesters();
+        toast({ title: "Subject Deleted", description: `"${subjectName}" has been deleted.` });
+        if (componentReady) await loadSubjects();
       } else {
-        toast({ title: "Error Deleting Semester", description: `Could not delete "${semesterName}".`, variant: "destructive" });
+        toast({ title: "Error Deleting Subject", description: `Could not delete "${subjectName}".`, variant: "destructive" });
       }
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
-        toast({ title: "Firebase Misconfigured!", description: "Cannot delete semester. Update firebaseConfig.ts.", variant: "destructive", duration: 10000 });
+        toast({ title: "Firebase Misconfigured!", description: "Cannot delete subject. Update firebaseConfig.ts.", variant: "destructive", duration: 10000 });
         setFirestoreStatus('misconfigured');
       } else {
-        toast({ title: "Error Deleting Semester", description: `An unexpected error occurred.`, variant: "destructive" });
+        toast({ title: "Error Deleting Subject", description: `An unexpected error occurred.`, variant: "destructive" });
       }
     }
     setIsSubmitting(false);
   };
 
-  const FirestoreStatusIndicator = () => {
+ const FirestoreStatusIndicator = () => {
     switch (firestoreStatus) {
       case 'initial':
         return <Badge variant="outline" className="text-xs"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Initializing...</Badge>;
       case 'checking':
         return <Badge variant="outline" className="text-xs"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking Firestore...</Badge>;
       case 'connected':
-        return <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-300"><Wifi className="h-3 w-3 mr-1 text-green-600" />Firestore Connected ({totalSemestersLoaded} semesters)</Badge>;
+        return <Badge variant="secondary" className="text-xs bg-green-100 text-green-700 border-green-300"><Wifi className="h-3 w-3 mr-1 text-green-600" />Firestore Connected ({totalSubjectsLoaded} subjects)</Badge>;
       case 'misconfigured':
         return <Badge variant="destructive" className="text-xs"><AlertCircle className="h-3 w-3 mr-1" />Firebase Misconfigured!</Badge>;
       case 'error':
@@ -195,9 +194,9 @@ export function SemesterManager() {
           <div className="flex justify-between items-start">
             <div>
               <CardTitle className="text-2xl flex items-center gap-2">
-                <CalendarDays className="h-6 w-6 text-primary" /> Manage Semesters
+                <BookOpen className="h-6 w-6 text-primary" /> Manage System Subjects
               </CardTitle>
-              <CardDescription>Add, rename, or delete academic semesters.</CardDescription>
+              <CardDescription>Add, rename, or delete global academic subjects.</CardDescription>
             </div>
             <FirestoreStatusIndicator />
           </div>
@@ -215,15 +214,15 @@ export function SemesterManager() {
   return (
     <Card className="w-full max-w-2xl mx-auto shadow-xl">
       <CardHeader>
-        <div className="flex justify-between items-start">
-          <div>
-            <CardTitle className="text-2xl flex items-center gap-2">
-              <CalendarDays className="h-6 w-6 text-primary" /> Manage Semesters
-            </CardTitle>
-            <CardDescription>Add, rename, or delete academic semesters. Changes here update Firestore.</CardDescription>
+         <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="text-2xl flex items-center gap-2">
+                <BookOpen className="h-6 w-6 text-primary" /> Manage System Subjects
+              </CardTitle>
+              <CardDescription>Add, rename, or delete global academic subjects. Changes update Firestore.</CardDescription>
+            </div>
+            <FirestoreStatusIndicator />
           </div>
-          <FirestoreStatusIndicator />
-        </div>
       </CardHeader>
       <CardContent>
         <div className="mb-6 flex justify-end">
@@ -232,21 +231,21 @@ export function SemesterManager() {
             className="bg-primary hover:bg-primary/90 text-primary-foreground"
             disabled={isSubmitting || firestoreStatus !== 'connected'}
           >
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New Semester
+            <PlusCircle className="mr-2 h-4 w-4" /> Add New Subject
           </Button>
         </div>
 
         {isLoading && firestoreStatus === 'checking' ? (
           <div className="flex justify-center items-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="ml-2">Loading semesters from Firestore...</span>
+            <span className="ml-2">Loading subjects from Firestore...</span>
           </div>
         ) : firestoreStatus === 'misconfigured' ? (
            <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <UIAlertTitle>Firebase Configuration Needed</UIAlertTitle>
             <UIAlertDescription>
-              The application is using placeholder Firebase credentials. Please update <code>src/lib/firebaseConfig.ts</code> with your actual Firebase project configuration to connect to Firestore. Semesters cannot be managed until this is fixed.
+              The application is using placeholder Firebase credentials. Please update <code>src/lib/firebaseConfig.ts</code> with your actual Firebase project configuration to connect to Firestore. Subjects cannot be managed until this is fixed.
             </UIAlertDescription>
           </Alert>
         ) : firestoreStatus === 'error' ? (
@@ -254,28 +253,28 @@ export function SemesterManager() {
             <AlertCircle className="h-4 w-4" />
             <UIAlertTitle>Firestore Connection Error</UIAlertTitle>
             <UIAlertDescription>
-              Could not connect to Firestore to load semesters. Please check your Firebase setup, security rules, and internet connection. See browser console for more details.
+              Could not connect to Firestore to load subjects. Please check your Firebase setup, security rules, and internet connection. See browser console for more details.
             </UIAlertDescription>
           </Alert>
-        ) : semesters.length === 0 && firestoreStatus === 'connected' ? (
+        ) : subjects.length === 0 && firestoreStatus === 'connected' ? (
           <Alert>
             <AlertCircle className="h-4 w-4" />
-            <UIAlertTitle>No Semesters Found</UIAlertTitle>
+            <UIAlertTitle>No Subjects Found</UIAlertTitle>
             <UIAlertDescription>
-              There are currently no semesters defined in Firestore. Click "Add New Semester" to get started.
+              There are currently no system subjects defined in Firestore. Click "Add New Subject" to get started.
             </UIAlertDescription>
           </Alert>
         ) : (
           <ScrollArea className="h-96">
             <ul className="space-y-3 pr-4">
-              {semesters.map(semester => (
-                <li key={semester} className="flex items-center justify-between p-3 border rounded-lg bg-card hover:shadow-md transition-shadow">
-                  <span className="text-foreground font-medium">{semester}</span>
+              {subjects.map(subject => (
+                <li key={subject} className="flex items-center justify-between p-3 border rounded-lg bg-card hover:shadow-md transition-shadow">
+                  <span className="text-foreground font-medium">{subject}</span>
                   <div className="space-x-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleOpenRenameModal(semester)}
+                      onClick={() => handleOpenRenameModal(subject)}
                       disabled={isSubmitting || firestoreStatus !== 'connected'}
                     >
                       <Edit className="mr-1 h-3 w-3" /> Rename
@@ -294,18 +293,17 @@ export function SemesterManager() {
                         <AlertDialogHeader>
                           <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This will permanently delete the semester "{semester}" from Firestore.
-                            This action cannot be undone and may affect teacher assignments and marks.
+                            This will permanently delete the subject "{subject}" from Firestore and may affect related user assignments and marks.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => handleDeleteSemester(semester)}
+                            onClick={() => handleDeleteSubject(subject)}
                             className="bg-destructive hover:bg-destructive/80"
                             disabled={isSubmitting}
                           >
-                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete Semester"}
+                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete Subject"}
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
@@ -317,9 +315,9 @@ export function SemesterManager() {
           </ScrollArea>
         )}
       </CardContent>
-      <CardFooter>
+       <CardFooter>
         <p className="text-xs text-muted-foreground">
-          Semesters are managed in Firestore. Actions here directly modify the database.
+          System subjects are managed in Firestore. Actions here directly modify the database.
           Ensure your <code>src/lib/firebaseConfig.ts</code> is correctly set up.
         </p>
       </CardFooter>
@@ -327,25 +325,25 @@ export function SemesterManager() {
       <Dialog open={isAddModalOpen || isRenameModalOpen} onOpenChange={isRenameModalOpen ? setIsRenameModalOpen : setIsAddModalOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isRenameModalOpen ? 'Rename Semester' : 'Add New Semester'}</DialogTitle>
+            <DialogTitle>{isRenameModalOpen ? 'Rename Subject' : 'Add New Subject'}</DialogTitle>
             <DialogDescription>
               {isRenameModalOpen
-                ? `Enter the new name for "${semesterToEdit}". This will update it in Firestore.`
-                : 'Enter the name for the new semester to add to Firestore (e.g., "Fall 2024").'}
+                ? `Enter the new name for "${subjectToEdit}". This will update it globally.`
+                : 'Enter the name for the new system subject.'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(isRenameModalOpen ? onSubmitRename : onSubmitAdd)} className="space-y-4 py-2">
             <div>
-              <Label htmlFor="semesterName">Semester Name</Label>
-              <Input id="semesterName" {...form.register("semesterName")} autoFocus />
-              {form.formState.errors.semesterName && <p className="text-sm text-destructive mt-1">{form.formState.errors.semesterName.message}</p>}
+              <Label htmlFor="subjectName">Subject Name</Label>
+              <Input id="subjectName" {...form.register("subjectName")} autoFocus />
+              {form.formState.errors.subjectName && <p className="text-sm text-destructive mt-1">{form.formState.errors.subjectName.message}</p>}
             </div>
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => { setIsAddModalOpen(false); setIsRenameModalOpen(false); setSemesterToEdit(null);}}>Cancel</Button>
+                <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => { setIsAddModalOpen(false); setIsRenameModalOpen(false); setSubjectToEdit(null);}}>Cancel</Button>
               </DialogClose>
               <Button type="submit" disabled={isSubmitting || firestoreStatus !== 'connected'} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (isRenameModalOpen ? 'Save Changes' : 'Add Semester')}
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : (isRenameModalOpen ? 'Save Changes' : 'Add Subject')}
               </Button>
             </DialogFooter>
           </form>

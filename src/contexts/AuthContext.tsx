@@ -3,7 +3,7 @@
 "use client";
 
 import type { User, Role } from '@/types';
-import { getUserByEmail, createUser as apiCreateUser } from '@/lib/mockData'; // Now Firestore-backed
+import { getUserByEmail, createUser as apiCreateUser } from '@/lib/mockData';
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -22,7 +22,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const robustTrim = (str: string | undefined): string => {
   if (typeof str !== 'string') return '';
-  // This regex handles various whitespace characters including Unicode ones like non-breaking space and byte order mark.
   return str.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
 };
 
@@ -48,25 +47,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
-    
     console.log('[AuthContext] LOGIN ATTEMPT: Raw emailInput="|', emailInput, '|", Length:', emailInput?.length);
-    
     const cleanedEmailInput = robustTrim(emailInput);
     console.log('[AuthContext] After robustTrim: cleanedEmailInput="|', cleanedEmailInput, '|", Length:', cleanedEmailInput?.length);
-    
     const email = cleanedEmailInput.toLowerCase();
     console.log('[AuthContext] After toLowerCase: final email for lookup="|', email, '|", Length:', email?.length);
-
-
     console.log(`[AuthContext] Attempting to find user with final email="|${email}|" and roleAttempt="${roleAttempt}" in Firestore.`);
-    
+
     try {
-      const foundUser = await getUserByEmail(email); 
-      
+      const foundUser = await getUserByEmail(email);
       if (foundUser) {
         console.log(`[AuthContext] USER FOUND in Firestore: ID="${foundUser.id}", Name="${foundUser.name}", Email="${foundUser.email}", StoredRole="${foundUser.role}"`);
         console.log(`[AuthContext] COMPARING ROLES: StoredRole="${foundUser.role}" (Type: ${typeof foundUser.role}) vs RoleAttempt="${roleAttempt}" (Type: ${typeof roleAttempt})`);
-        
         if (foundUser.role === roleAttempt) {
           console.log('[AuthContext] LOGIN SUCCESSFUL for user:', foundUser.name);
           setUser(foundUser);
@@ -78,14 +70,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Login Failed", description: "Role mismatch. Please select the correct role.", variant: "destructive" });
         }
       } else {
+        // getUserByEmail now throws specific errors or returns undefined
+        // If it returns undefined, it means user not found, not a db error
         console.error(`[AuthContext] USER NOT FOUND for email (robustly trimmed, lowercased): |${email}|. Login failed.`);
         toast({ title: "Login Failed", description: "User not found or incorrect credentials/role.", variant: "destructive" });
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message === "FirebaseMisconfigured") {
+        toast({ title: "Firebase Misconfigured!", description: "Please update src/lib/firebaseConfig.ts with your project credentials. Login cannot proceed.", variant: "destructive", duration: 15000 });
+      } else if (error.message === "DatabaseQueryFailed") {
+        toast({ title: "Login Error", description: "Could not connect to the database to verify credentials. Please try again later.", variant: "destructive" });
+      } else {
         console.error('[AuthContext] Error during login process:', error);
         toast({ title: "Login Error", description: "An unexpected error occurred.", variant: "destructive" });
+      }
     }
-
     console.log('[AuthContext] Overall login outcome: FAILED.');
     setIsLoading(false);
     return false;
@@ -98,35 +97,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const cleanedPrn = prn ? robustTrim(prn).toUpperCase() : undefined;
 
     try {
-      const existingUser = await getUserByEmail(email); 
-      if (existingUser) {
-        toast({ title: "Registration Failed", description: `User with email ${email} already exists.`, variant: "destructive" });
-        console.warn(`[AuthContext] Registration failed: User with email ${email} already exists.`);
-        setIsLoading(false);
-        return false; 
-      }
-      
       const newUserPayload: Omit<User, 'id'> = {
         email: email,
         name: cleanedName,
         role: role,
-        // Initialize arrays if they are not optional or ensure createUser handles it
-        subjects: [], 
+        subjects: [],
         semesterAssignments: [],
       };
-
-      if (role === 'student') {
+      if (role === 'student' && cleanedPrn) {
         newUserPayload.prn = cleanedPrn;
       }
-      
-      const newUser = await apiCreateUser(newUserPayload); 
+      const newUser = await apiCreateUser(newUserPayload);
       setUser(newUser);
       sessionStorage.setItem('campusUser', JSON.stringify(newUser));
       setIsLoading(false);
       return true;
     } catch (error: any) {
-      console.error('[AuthContext] Registration error:', error);
-      toast({ title: "Registration Failed", description: error.message || "An error occurred during registration.", variant: "destructive" });
+      if (error.message === "FirebaseMisconfigured") {
+        toast({ title: "Firebase Misconfigured!", description: "Please update src/lib/firebaseConfig.ts with your project credentials. Registration cannot proceed.", variant: "destructive", duration: 15000 });
+      } else {
+        console.error('[AuthContext] Registration error:', error);
+        toast({ title: "Registration Failed", description: error.message || "An error occurred during registration.", variant: "destructive" });
+      }
       setIsLoading(false);
       return false;
     }
@@ -142,7 +134,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (user?.email) {
       console.log('[AuthContext] Attempting to refresh user session for:', user.email);
       try {
-        const latestUserData = await getUserByEmail(user.email); 
+        const latestUserData = await getUserByEmail(user.email);
         if (latestUserData) {
           setUser(latestUserData);
           sessionStorage.setItem('campusUser', JSON.stringify(latestUserData));
@@ -150,10 +142,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Session Updated", description: "Your user details and permissions have been refreshed." });
         } else {
           console.warn('[AuthContext] Could not find user data to refresh session for:', user.email, 'Logging out.');
-          logout(); 
+          logout();
         }
-      } catch (error) {
+      } catch (error: any) {
+        if (error.message === "FirebaseMisconfigured") {
+          toast({ title: "Firebase Misconfigured!", description: "Cannot refresh session. Please update src/lib/firebaseConfig.ts.", variant: "destructive", duration: 15000 });
+        } else {
           console.error('[AuthContext] Error refreshing user session:', error);
+          // Optionally logout if refresh fails due to other db errors
+          // logout();
+        }
       }
     } else {
       console.log('[AuthContext] No active user to refresh.');
@@ -174,4 +172,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
