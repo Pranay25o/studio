@@ -70,6 +70,7 @@ export function TeacherSemesterAssignmentManager() {
       setSystemSubjects(fetchedSysSubjects);
       setSemesters(fetchedSemesters);
     } catch (error) {
+      console.error("Error fetching initial data for semester assignments:", error);
       toast({ title: "Error fetching data", description: "Could not load initial selection data. Check Firestore connection.", variant: "destructive" });
     }
     setIsLoading(false);
@@ -168,9 +169,17 @@ export function TeacherSemesterAssignmentManager() {
                       <SelectValue placeholder={selectedTeacherId ? (semesters.length > 0 ? "Choose a semester..." : "No semesters defined") : "Select teacher first..."} />
                     </SelectTrigger>
                     <SelectContent>
-                      {semesters.length > 0 ? semesters.map(sem => (
-                        <SelectItem key={sem} value={sem}>{sem}</SelectItem>
-                      )) : <SelectItem value="" disabled>No semesters available. Add them via "Manage Semesters".</SelectItem>}
+                      {semesters.length > 0 ? (
+                        semesters.map(sem => (
+                          <SelectItem key={sem} value={sem}>{sem}</SelectItem>
+                        ))
+                      ) : (
+                        <div className="p-2 text-center text-sm text-muted-foreground">
+                          No semesters defined.
+                          <br />
+                          Add them via "Manage Semesters".
+                        </div>
+                      )}
                     </SelectContent>
                   </Select>
                    {form.formState.errors.semester && <p className="text-sm text-destructive mt-1">{form.formState.errors.semester.message}</p>}
@@ -252,3 +261,4 @@ export function TeacherSemesterAssignmentManager() {
 // Helper to import FormField and FormItem if not directly available.
 // These are typically part of '@/components/ui/form'
 import { FormField, FormItem } from '@/components/ui/form';
+
