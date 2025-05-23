@@ -62,7 +62,8 @@ export function SystemSubjectManager() {
       const fetchedSubjects = await getAllAvailableSubjects();
       setSubjects(fetchedSubjects);
     } catch (error) {
-      toast({ title: "Error loading subjects", description: "Could not fetch the list of system subjects.", variant: "destructive" });
+      toast({ title: "Error loading subjects", description: "Could not fetch the list of system subjects from Firestore.", variant: "destructive" });
+      setSubjects([]); // Ensure subjects is empty on error
     }
     setIsLoading(false);
   }
@@ -83,11 +84,11 @@ export function SystemSubjectManager() {
     const success = await addSystemSubject(data.subjectName);
     if (success) {
       toast({ title: "Subject Added", description: `"${data.subjectName}" has been added to the system.` });
-      await loadSubjects();
       setIsAddModalOpen(false);
     } else {
-      toast({ title: "Error Adding Subject", description: `Could not add "${data.subjectName}". It might already exist.`, variant: "destructive" });
+      toast({ title: "Error Adding Subject", description: `Could not add "${data.subjectName}". It might already exist or an error occurred.`, variant: "destructive" });
     }
+    await loadSubjects(); // Refresh list from Firestore
     setIsSubmitting(false);
   };
 
@@ -97,25 +98,29 @@ export function SystemSubjectManager() {
     const success = await renameSystemSubject(subjectToEdit, data.subjectName);
     if (success) {
       toast({ title: "Subject Renamed", description: `"${subjectToEdit}" is now "${data.subjectName}".` });
-      await loadSubjects();
       setIsRenameModalOpen(false);
       setSubjectToEdit(null);
     } else {
       toast({ title: "Error Renaming Subject", description: `Could not rename "${subjectToEdit}". The new name might already exist or an error occurred.`, variant: "destructive" });
     }
+    await loadSubjects(); // Refresh list from Firestore
     setIsSubmitting(false);
   };
 
   const handleDeleteSubject = async (subjectName: string) => {
-    setIsSubmitting(true);
+    // This specific isSubmitting state is for the delete button in the dialog
+    // It's not the global isSubmitting for the component.
+    // We can introduce a local loading state for the dialog if needed,
+    // but for now, the AlertDialog's disabled prop handles the button.
     const success = await deleteSystemSubject(subjectName);
     if (success) {
       toast({ title: "Subject Deleted", description: `"${subjectName}" has been deleted from the system.` });
-      await loadSubjects();
+      await loadSubjects(); // Refresh list from Firestore
     } else {
-      toast({ title: "Error Deleting Subject", description: `Could not delete "${subjectName}".`, variant: "destructive" });
+      toast({ title: "Error Deleting Subject", description: `Could not delete "${subjectName}". It might be in use or an error occurred.`, variant: "destructive" });
+      await loadSubjects(); // Refresh list also on deletion error, in case the state needs reconciliation
     }
-    setIsSubmitting(false);
+    // No global setIsSubmitting(false) here as it's part of the AlertDialog action.
   };
 
 
@@ -125,11 +130,11 @@ export function SystemSubjectManager() {
         <CardTitle className="text-2xl flex items-center gap-2">
           <BookOpen className="h-6 w-6 text-primary" /> Manage System Subjects
         </CardTitle>
-        <CardDescription>Add, rename, or delete academic subjects available across the entire system. Changes here will reflect globally.</CardDescription>
+        <CardDescription>Add, rename, or delete academic subjects available across the entire system. Changes here will reflect globally in Firestore.</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="mb-6 flex justify-end">
-          <Button onClick={handleOpenAddModal} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button onClick={handleOpenAddModal} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSubmitting}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Subject
           </Button>
         </div>
@@ -137,14 +142,14 @@ export function SystemSubjectManager() {
         {isLoading ? (
           <div className="flex justify-center items-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="ml-2">Loading subjects...</span>
+            <span className="ml-2">Loading subjects from Firestore...</span>
           </div>
         ) : subjects.length === 0 ? (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>No System Subjects Found</AlertTitle>
             <CardDescription>
-              There are currently no subjects defined in the system. Click "Add New Subject" to get started.
+              There are currently no subjects defined in Firestore. Click "Add New Subject" to get started.
             </CardDescription>
           </Alert>
         ) : (
@@ -167,14 +172,14 @@ export function SystemSubjectManager() {
                         <AlertDialogHeader>
                           <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                           <AlertDialogDescription>
-                            This will permanently delete the subject "{subject}" from the system. 
-                            This action cannot be undone. Associated marks and assignments might be affected.
+                            This will permanently delete the subject "{subject}" from Firestore.
+                            This action cannot be undone. Ensure this subject is not critically referenced elsewhere if you haven't set up advanced cascading deletes or checks.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDeleteSubject(subject)} className="bg-destructive hover:bg-destructive/80" disabled={isSubmitting}>
-                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete Subject"}
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => handleDeleteSubject(subject)} className="bg-destructive hover:bg-destructive/80">
+                            Delete Subject
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
@@ -188,8 +193,8 @@ export function SystemSubjectManager() {
       </CardContent>
       <CardFooter>
         <p className="text-xs text-muted-foreground">
-          Note: Renaming or deleting subjects can affect existing teacher assignments and student marks records.
-          The system will attempt to update related mock data, but ensure data integrity with real backends.
+          Note: Subjects are managed in Firestore. Renaming or deleting subjects here updates the central list.
+          Consider implications for data integrity if subjects are referenced in other parts of your system that are not yet fully migrated to Firestore.
         </p>
       </CardFooter>
 
@@ -199,9 +204,9 @@ export function SystemSubjectManager() {
           <DialogHeader>
             <DialogTitle>{isRenameModalOpen ? 'Rename Subject' : 'Add New Subject'}</DialogTitle>
             <DialogDescription>
-              {isRenameModalOpen 
-                ? `Enter the new name for "${subjectToEdit}". This change will be reflected globally.` 
-                : 'Enter the name for the new subject to add to the system.'}
+              {isRenameModalOpen
+                ? `Enter the new name for "${subjectToEdit}". This change will be reflected globally in Firestore.`
+                : 'Enter the name for the new subject to add to Firestore.'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(isRenameModalOpen ? onSubmitRename : onSubmitAdd)} className="space-y-4 py-2">
@@ -224,3 +229,4 @@ export function SystemSubjectManager() {
     </Card>
   );
 }
+
