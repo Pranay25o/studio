@@ -44,7 +44,7 @@ type AssignExistingFormData = z.infer<typeof assignExistingSchema>;
 
 
 export function TeacherSubjectManager() {
-  const { user: loggedInUser } = useAuth();
+  const { user: loggedInUser, refreshAuthUser } = useAuth(); // Added refreshAuthUser
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,7 +89,7 @@ export function TeacherSubjectManager() {
       setSelectedUser(null);
       assignExistingForm.setValue('subjectsToAssign', []);
     }
-  }, [selectedUserId, allUsers, assignExistingForm.setValue]);
+  }, [selectedUserId, allUsers, assignExistingForm]); // Removed assignExistingForm.setValue from deps
 
 
   async function fetchInitialData() {
@@ -139,6 +139,9 @@ export function TeacherSubjectManager() {
       await apiAssignSubjectsToTeacher(selectedUser.id, newSubjects);
       toast({ title: "Subject Unassigned", description: `${subjectToUnassign} has been unassigned from ${selectedUser.name}.` });
       await refreshUserData(selectedUser.id);
+      if (selectedUser.id === loggedInUser?.id) { // Check if logged in user's subjects changed
+        await refreshAuthUser();
+      }
     } catch (error) {
       toast({ title: "Error Unassigning Subject", variant: "destructive" });
     }
@@ -163,7 +166,10 @@ export function TeacherSubjectManager() {
       await apiRenameSystemSubject(subjectToRename, data.updatedSubjectName);
       toast({ title: "Subject Renamed Globally", description: `"${subjectToRename}" is now "${data.updatedSubjectName}" for all users.` });
       await refreshSystemSubjects();
-      await refreshUserData(selectedUser?.id); // Refresh current user's data as their subject list changes
+      await refreshUserData(selectedUser?.id); 
+      if (loggedInUser?.subjects?.includes(subjectToRename)) { // If logged in user was assigned the old subject name
+        await refreshAuthUser();
+      }
       setIsRenameModalOpen(false);
       setSubjectToRename(null);
     } catch (error) {
@@ -181,15 +187,18 @@ export function TeacherSubjectManager() {
       return;
     }
     try {
-      await addSystemSubject(data.newSubjectName);
-      await refreshSystemSubjects();
+      await addSystemSubject(data.newSubjectName); // Add to system first
+      await refreshSystemSubjects(); // Refresh system subjects list
       
       const currentSubjects = selectedUser.subjects || [];
       const newAssignedSubjects = [...currentSubjects, data.newSubjectName].sort();
-      await apiAssignSubjectsToTeacher(selectedUser.id, newAssignedSubjects);
+      await apiAssignSubjectsToTeacher(selectedUser.id, newAssignedSubjects); // Assign to user
       
       toast({ title: "Subject Created & Assigned", description: `${data.newSubjectName} created and assigned to ${selectedUser.name}.` });
       await refreshUserData(selectedUser.id);
+      if (selectedUser.id === loggedInUser?.id) {
+        await refreshAuthUser();
+      }
       setIsCreateModalOpen(false);
       newSubjectForm.reset();
     } catch (error) {
@@ -205,6 +214,9 @@ export function TeacherSubjectManager() {
         await apiAssignSubjectsToTeacher(selectedUser.id, data.subjectsToAssign.sort());
         toast({ title: "Subject Assignments Updated", description: `Assignments updated for ${selectedUser.name}.` });
         await refreshUserData(selectedUser.id);
+        if (selectedUser.id === loggedInUser?.id) {
+            await refreshAuthUser();
+        }
         setIsAssignModalOpen(false);
     } catch (error) {
         toast({ title: "Error Updating Assignments", variant: "destructive" });
@@ -355,29 +367,35 @@ export function TeacherSubjectManager() {
                     <DialogDescription>Select subjects from the system list to assign.</DialogDescription>
                 </DialogHeader>
                 <form onSubmit={assignExistingForm.handleSubmit(onSubmitAssignExistingSubjects)}>
-                    <ScrollArea className="h-72 w-full rounded-md border p-4 my-4 bg-background/50">
-                        <div className="space-y-2">
-                            {systemSubjects.length > 0 ? systemSubjects.map(subject => (
-                                <div key={subject} className="flex items-center space-x-2">
-                                    <Checkbox
-                                        id={`assign-${subject.replace(/\s+/g, '-')}`}
-                                        checked={assignExistingForm.watch('subjectsToAssign').includes(subject)}
-                                        onCheckedChange={(checked) => {
-                                            const current = assignExistingForm.getValues('subjectsToAssign');
-                                            if (checked) {
-                                                assignExistingForm.setValue('subjectsToAssign', [...current, subject]);
-                                            } else {
-                                                assignExistingForm.setValue('subjectsToAssign', current.filter(s => s !== subject));
-                                            }
-                                        }}
-                                    />
-                                    <Label htmlFor={`assign-${subject.replace(/\s+/g, '-')}`} className="font-normal text-sm cursor-pointer">
-                                        {subject}
-                                    </Label>
+                    <Controller
+                        name="subjectsToAssign"
+                        control={assignExistingForm.control}
+                        render={({ field }) => (
+                            <ScrollArea className="h-72 w-full rounded-md border p-4 my-4 bg-background/50">
+                                <div className="space-y-2">
+                                    {systemSubjects.length > 0 ? systemSubjects.map(subject => (
+                                        <div key={subject} className="flex items-center space-x-2">
+                                            <Checkbox
+                                                id={`assign-${subject.replace(/\s+/g, '-')}`}
+                                                checked={field.value.includes(subject)}
+                                                onCheckedChange={(checked) => {
+                                                    const current = field.value;
+                                                    if (checked) {
+                                                        field.onChange([...current, subject]);
+                                                    } else {
+                                                        field.onChange(current.filter(s => s !== subject));
+                                                    }
+                                                }}
+                                            />
+                                            <Label htmlFor={`assign-${subject.replace(/\s+/g, '-')}`} className="font-normal text-sm cursor-pointer">
+                                                {subject}
+                                            </Label>
+                                        </div>
+                                    )) : <p className="text-sm text-muted-foreground">No system subjects available or all are assigned to this user.</p>}
                                 </div>
-                            )) : <p className="text-sm text-muted-foreground">No system subjects available or all are assigned.</p>}
-                        </div>
-                    </ScrollArea>
+                            </ScrollArea>
+                        )}
+                    />
                      {assignExistingForm.formState.errors.subjectsToAssign && <p className="text-sm text-destructive mt-1">{assignExistingForm.formState.errors.subjectsToAssign.message}</p>}
                     <DialogFooter>
                         <DialogClose asChild><Button type="button" variant="outline" disabled={isSubmitting}>Cancel</Button></DialogClose>
@@ -392,5 +410,3 @@ export function TeacherSubjectManager() {
     </Card>
   );
 }
-
-    

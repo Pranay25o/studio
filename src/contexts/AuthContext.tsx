@@ -6,14 +6,16 @@ import type { User, Role } from '@/types';
 import { mockUsers, getUserByEmail, createUser as apiCreateUser } from '@/lib/mockData';
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast'; // Import useToast
 
 interface AuthContextType {
   user: User | null;
   role: Role | null;
   isLoading: boolean;
-  login: (email: string, pass: string, roleAttempt: Role) => Promise<boolean>; // pass is unused for mock
+  login: (email: string, pass: string, roleAttempt: Role) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, pass: string, role: Role, prn?: string) => Promise<boolean>;
+  refreshAuthUser: () => Promise<void>; // New function
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -22,9 +24,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const { toast } = useToast(); // Initialize toast
 
   useEffect(() => {
-    // Simulate checking for an existing session
     const storedUser = sessionStorage.getItem('campusUser');
     if (storedUser) {
       try {
@@ -40,15 +42,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
-    const email = emailInput.trim(); // Trim whitespace from email
-    console.log('[AuthContext] LOGIN ATTEMPT: Email (trimmed)="', email, '", RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
+    const email = emailInput.trim().toLowerCase(); // Trim and lowercase
+    console.log('[AuthContext] LOGIN ATTEMPT: Email (trimmed, lowercased)="', email, '", RoleAttempt="', roleAttempt, '"');
     
     const foundUser = await getUserByEmail(email);
     
     if (foundUser) {
-      console.log('[AuthContext] USER FOUND: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ')');
-      
+      console.log('[AuthContext] USER FOUND: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '"');
       console.log('[AuthContext] COMPARING ROLES: StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ') vs RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
+      
       if (foundUser.role === roleAttempt) {
         console.log('[AuthContext] LOGIN SUCCESSFUL for user:', foundUser.name);
         setUser(foundUser);
@@ -59,7 +61,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.error('[AuthContext] ROLE MISMATCH: Stored role is "', foundUser.role, '" but attempted role was "', roleAttempt, '". Login failed.');
       }
     } else {
-      console.error('[AuthContext] USER NOT FOUND for email (trimmed): "', email, '". Login failed.');
+      console.error('[AuthContext] USER NOT FOUND for email (trimmed, lowercased): "', email, '". Login failed.');
     }
 
     console.log('[AuthContext] Overall login outcome: FAILED.');
@@ -72,7 +74,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const existingUser = await getUserByEmail(email.trim());
     if (existingUser) {
       setIsLoading(false);
-      return false; // User already exists
+      return false; 
     }
     const newUser = await apiCreateUser({ email: email.trim(), name, role, prn });
     setUser(newUser);
@@ -87,8 +89,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     router.push('/login');
   };
 
+  const refreshAuthUser = async () => {
+    if (user?.email) {
+      console.log('[AuthContext] Attempting to refresh user session for:', user.email);
+      const latestUserData = await getUserByEmail(user.email);
+      if (latestUserData) {
+        setUser(latestUserData);
+        sessionStorage.setItem('campusUser', JSON.stringify(latestUserData));
+        console.log('[AuthContext] User session refreshed successfully for:', latestUserData.name);
+        toast({ title: "Session Updated", description: "Your user details and permissions have been refreshed." });
+      } else {
+        console.warn('[AuthContext] Could not find user data to refresh session for:', user.email);
+        // Optionally, could log out the user if their data is no longer found
+        // logout(); 
+      }
+    } else {
+      console.log('[AuthContext] No active user to refresh.');
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, role: user?.role || null, isLoading, login, logout, register }}>
+    <AuthContext.Provider value={{ user, role: user?.role || null, isLoading, login, logout, register, refreshAuthUser }}>
       {children}
     </AuthContext.Provider>
   );
@@ -101,4 +122,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
