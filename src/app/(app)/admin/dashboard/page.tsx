@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users2, BookLock, ArrowRight, Activity } from 'lucide-react';
+import { Users2, BookLock, ArrowRight, Activity, BookOpen, CalendarClock } from 'lucide-react';
 
 interface FeatureCardProps {
   title: string;
@@ -47,12 +47,23 @@ export default function AdminDashboardPage() {
           icon={<Users2 className="h-8 w-8" />}
         />
         <FeatureCard
-          title="Manage Teacher Subjects"
-          description="Assign and unassign academic subjects for teachers."
+          title="User Subject Assignment"
+          description="Assign general academic subjects for users (teachers/admins)."
           href="/admin/manage-teacher-subjects"
           icon={<BookLock className="h-8 w-8" />}
         />
-        {/* Add more admin feature cards here as needed */}
+         <FeatureCard
+          title="Manage System Subjects"
+          description="Add, rename, or delete subjects available in the entire system."
+          href="/admin/manage-system-subjects"
+          icon={<BookOpen className="h-8 w-8" />}
+        />
+        <FeatureCard
+          title="Teacher Semester Assignments"
+          description="Assign subjects to teachers for specific academic semesters."
+          href="/admin/manage-teacher-semester-assignments"
+          icon={<CalendarClock className="h-8 w-8" />}
+        />
       </div>
 
        <Card className="mt-12 bg-secondary/30">

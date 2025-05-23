@@ -37,7 +37,9 @@ import {
   PencilLine,
   ShieldCheck,
   Users2,
-  BookLock
+  BookLock,
+  BookOpen,
+  CalendarClock
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
@@ -199,10 +201,32 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <SidebarMenuButton
           asChild
           isActive={pathname.startsWith("/admin/manage-teacher-subjects")}
-          tooltip="User Subjects"
+          tooltip="User General Subjects"
         >
           <Link href="/admin/manage-teacher-subjects">
-            <BookLock /> <span>User Subjects</span>
+            <BookLock /> <span>User General Subjects</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+       <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname.startsWith("/admin/manage-system-subjects")}
+          tooltip="System Subjects"
+        >
+          <Link href="/admin/manage-system-subjects">
+            <BookOpen /> <span>System Subjects</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname.startsWith("/admin/manage-teacher-semester-assignments")}
+          tooltip="Teacher Semester Assignments"
+        >
+          <Link href="/admin/manage-teacher-semester-assignments">
+            <CalendarClock /> <span>Teacher Semester Asgmt.</span>
           </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>

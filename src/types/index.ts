@@ -1,13 +1,21 @@
 
 export type Role = 'student' | 'teacher' | 'admin';
 
+export type Semester = string; // e.g., "Semester 1, 2023-2024", "Fall 2024"
+
+export interface TeacherSemesterAssignment {
+  semester: Semester;
+  subjects: string[];
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
   role: Role;
   prn?: string; // For students
-  subjects?: string[]; // For teachers, list of subjects they can manage
+  subjects?: string[]; // General subjects (e.g., for admin oversight or non-semester specific roles)
+  semesterAssignments?: TeacherSemesterAssignment[]; // For teachers, subjects assigned per semester
 }
 
 export type AssessmentType = 'CA1' | 'CA2' | 'MidSem' | 'EndSem';

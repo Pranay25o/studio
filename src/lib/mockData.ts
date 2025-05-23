@@ -1,13 +1,40 @@
 
-import type { Student, User, Mark, Role, AssessmentType } from '@/types';
+import type { Student, User, Mark, Role, AssessmentType, Semester, TeacherSemesterAssignment } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
 
+export let mockSemesters: Semester[] = [
+  "Semester 1, 2023-2024",
+  "Semester 2, 2023-2024",
+  "Semester 1, 2024-2025",
+  "Semester 2, 2024-2025",
+].sort();
+
 export let mockUsers: User[] = [
-  { id: 'teacher1', email: 'teacher@example.com', name: 'Prof. Ada Lovelace', role: 'teacher', subjects: ['Mathematics', 'Physics'] },
-  { id: 'teacher2', email: 'prof.curie@example.com', name: 'Prof. Marie Curie', role: 'teacher', subjects: ['Chemistry', 'Advanced Physics'] },
+  { 
+    id: 'teacher1', 
+    email: 'teacher@example.com', 
+    name: 'Prof. Ada Lovelace', 
+    role: 'teacher', 
+    subjects: ['Mathematics', 'Physics'], // General oversight subjects
+    semesterAssignments: [
+      { semester: "Semester 1, 2023-2024", subjects: ['Mathematics', 'Physics'] },
+      { semester: "Semester 2, 2023-2024", subjects: ['Mathematics'] }
+    ]
+  },
+  { 
+    id: 'teacher2', 
+    email: 'prof.curie@example.com', 
+    name: 'Prof. Marie Curie', 
+    role: 'teacher', 
+    subjects: ['Chemistry', 'Advanced Physics'],
+    semesterAssignments: [
+      { semester: "Semester 1, 2023-2024", subjects: ['Chemistry'] },
+      { semester: "Semester 2, 2023-2024", subjects: ['Chemistry', 'Advanced Physics'] }
+    ]
+  },
   { id: 'student1', email: 'student1@example.com', name: 'Alice Smith', role: 'student', prn: 'PRN001' },
   { id: 'student2', email: 'student2@example.com', name: 'Bob Johnson', role: 'student', prn: 'PRN002' },
-  { id: 'admin01', email: 'admin@example.com', name: 'Super Admin', role: 'admin', subjects: [] },
+  { id: 'admin01', email: 'admin@example.com', name: 'Super Admin', role: 'admin', subjects: [] }, // Admin might have general subjects or use semester assignments too if they teach
 ];
 
 export let mockMarks: Mark[] = [
@@ -170,9 +197,14 @@ export const getUserByEmail = async (email: string): Promise<User | undefined> =
   return foundUser;
 }
 
-export const createUser = async (userData: Omit<User, 'id'> & { subjects?: string[] }): Promise<User> => {
+export const createUser = async (userData: Omit<User, 'id'> & { subjects?: string[], semesterAssignments?: TeacherSemesterAssignment[] }): Promise<User> => {
   await new Promise(resolve => setTimeout(resolve, 300));
-  const newUser: User = { ...userData, id: `user${mockUsers.length + 1}`};
+  const newUser: User = { 
+    ...userData, 
+    id: `user${mockUsers.length + 1}`,
+    subjects: userData.subjects || [],
+    semesterAssignments: userData.semesterAssignments || [] 
+  };
   if (userData.role === 'student' && !userData.prn) {
     newUser.prn = `PRN${String(mockStudents.length + 1).padStart(3, '0')}`;
   }
@@ -237,6 +269,11 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
     if (user.subjects) {
       user.subjects = user.subjects.map(s => s.toLowerCase() === oldNameActualCase.toLowerCase() ? trimmedNewName : s).sort();
     }
+    if (user.semesterAssignments) {
+      user.semesterAssignments.forEach(assignment => {
+        assignment.subjects = assignment.subjects.map(s => s.toLowerCase() === oldNameActualCase.toLowerCase() ? trimmedNewName : s).sort();
+      });
+    }
   });
 
   mockMarks.forEach(mark => {
@@ -269,9 +306,16 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     if (user.subjects) {
       user.subjects = user.subjects.filter(s => s.toLowerCase() !== subjectToDeleteActualCase.toLowerCase()).sort();
     }
+    if (user.semesterAssignments) {
+      user.semesterAssignments.forEach(assignment => {
+        assignment.subjects = assignment.subjects.filter(s => s.toLowerCase() !== subjectToDeleteActualCase.toLowerCase()).sort();
+      });
+      // Optional: Remove empty semester assignments
+      // user.semesterAssignments = user.semesterAssignments.filter(sa => sa.subjects.length > 0);
+    }
   });
   
-  const replacementSubjectName = `Deleted Subject (${subjectToDeleteActualCase})`;
+  const replacementSubjectName = `Archived Subject (${subjectToDeleteActualCase})`;
   mockMarks.forEach(mark => {
     if (mark.subject.toLowerCase() === subjectToDeleteActualCase.toLowerCase()) {
       mark.subject = replacementSubjectName; 
@@ -285,4 +329,37 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     });
   });
   return true;
+};
+
+// --- Semester and Teacher Semester Assignment Functions ---
+export const getSemesters = async (): Promise<Semester[]> => {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return [...mockSemesters];
+};
+
+export const assignSubjectsToTeacherForSemester = async (userId: string, semester: Semester, subjects: string[]): Promise<User | undefined> => {
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const userIndex = mockUsers.findIndex(u => u.id === userId && (u.role === 'teacher' || u.role === 'admin'));
+  if (userIndex === -1) return undefined;
+
+  const user = mockUsers[userIndex];
+  if (!user.semesterAssignments) {
+    user.semesterAssignments = [];
+  }
+
+  const existingSemesterAssignmentIndex = user.semesterAssignments.findIndex(sa => sa.semester === semester);
+  const sortedSubjects = [...subjects].sort();
+
+  if (existingSemesterAssignmentIndex !== -1) {
+    if (sortedSubjects.length === 0) { // If all subjects are removed for the semester
+      user.semesterAssignments.splice(existingSemesterAssignmentIndex, 1);
+    } else {
+      user.semesterAssignments[existingSemesterAssignmentIndex].subjects = sortedSubjects;
+    }
+  } else if (sortedSubjects.length > 0) { // Only add if there are subjects to assign
+    user.semesterAssignments.push({ semester, subjects: sortedSubjects });
+    user.semesterAssignments.sort((a, b) => a.semester.localeCompare(b.semester)); // Keep sorted
+  }
+  
+  return user;
 };
