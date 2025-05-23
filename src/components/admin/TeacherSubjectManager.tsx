@@ -8,9 +8,9 @@ import * as z from 'zod';
 import {
   getAllUsers,
   assignSubjectsToTeacher as apiAssignSubjectsToTeacher,
-  getAllAvailableSubjects,
-  addSystemSubject,
-  renameSystemSubject as apiRenameSystemSubject,
+  getAllAvailableSubjects, // Now async
+  addSystemSubject, // Now async
+  renameSystemSubject as apiRenameSystemSubject, // Now async
 } from '@/lib/mockData';
 import type { User } from '@/types';
 import { useToast } from '@/hooks/use-toast';
@@ -44,7 +44,7 @@ type AssignExistingFormData = z.infer<typeof assignExistingSchema>;
 
 
 export function TeacherSubjectManager() {
-  const { user: loggedInUser, refreshAuthUser } = useAuth(); // Added refreshAuthUser
+  const { user: loggedInUser, refreshAuthUser } = useAuth();
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,7 +89,7 @@ export function TeacherSubjectManager() {
       setSelectedUser(null);
       assignExistingForm.setValue('subjectsToAssign', []);
     }
-  }, [selectedUserId, allUsers, assignExistingForm]); // Removed assignExistingForm.setValue from deps
+  }, [selectedUserId, allUsers, assignExistingForm]);
 
 
   async function fetchInitialData() {
@@ -97,7 +97,7 @@ export function TeacherSubjectManager() {
     try {
       const [fetchedUsers, fetchedSubjects] = await Promise.all([
         getAllUsers(),
-        getAllAvailableSubjects(),
+        getAllAvailableSubjects(), // Now async
       ]);
       setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
       setSystemSubjects(fetchedSubjects);
@@ -123,7 +123,7 @@ export function TeacherSubjectManager() {
   
   async function refreshSystemSubjects() {
     try {
-        const fetchedSubjects = await getAllAvailableSubjects();
+        const fetchedSubjects = await getAllAvailableSubjects(); // Now async
         setSystemSubjects(fetchedSubjects);
     } catch (error) {
         toast({ title: "Error refreshing subjects", description: "Could not update subject list.", variant: "destructive" });
@@ -139,7 +139,7 @@ export function TeacherSubjectManager() {
       await apiAssignSubjectsToTeacher(selectedUser.id, newSubjects);
       toast({ title: "Subject Unassigned", description: `${subjectToUnassign} has been unassigned from ${selectedUser.name}.` });
       await refreshUserData(selectedUser.id);
-      if (selectedUser.id === loggedInUser?.id) { // Check if logged in user's subjects changed
+      if (selectedUser.id === loggedInUser?.id) { 
         await refreshAuthUser();
       }
     } catch (error) {
@@ -157,17 +157,18 @@ export function TeacherSubjectManager() {
   const onSubmitRenameSubject = async (data: RenameSubjectFormData) => {
     if (!subjectToRename) return;
     setIsSubmitting(true);
-    if (systemSubjects.includes(data.updatedSubjectName) && data.updatedSubjectName !== subjectToRename) {
+    const currentSystemSubjects = await getAllAvailableSubjects(); // Fetch current subjects
+    if (currentSystemSubjects.map(s => s.toLowerCase()).includes(data.updatedSubjectName.toLowerCase()) && data.updatedSubjectName.toLowerCase() !== subjectToRename.toLowerCase()) {
       renameSubjectForm.setError('updatedSubjectName', { type: 'manual', message: 'This subject name already exists.' });
       setIsSubmitting(false);
       return;
     }
     try {
-      await apiRenameSystemSubject(subjectToRename, data.updatedSubjectName);
+      await apiRenameSystemSubject(subjectToRename, data.updatedSubjectName); // Now async
       toast({ title: "Subject Renamed Globally", description: `"${subjectToRename}" is now "${data.updatedSubjectName}" for all users.` });
       await refreshSystemSubjects();
       await refreshUserData(selectedUser?.id); 
-      if (loggedInUser?.subjects?.includes(subjectToRename)) { // If logged in user was assigned the old subject name
+      if (loggedInUser?.subjects?.includes(subjectToRename)) { 
         await refreshAuthUser();
       }
       setIsRenameModalOpen(false);
@@ -181,13 +182,14 @@ export function TeacherSubjectManager() {
   const onSubmitCreateNewSubject = async (data: NewSubjectFormData) => {
     if (!selectedUser) return;
     setIsSubmitting(true);
-    if (systemSubjects.includes(data.newSubjectName)) {
+    const currentSystemSubjects = await getAllAvailableSubjects(); // Fetch current subjects
+    if (currentSystemSubjects.map(s => s.toLowerCase()).includes(data.newSubjectName.toLowerCase())) {
       newSubjectForm.setError('newSubjectName', { type: 'manual', message: 'This subject already exists in the system.' });
       setIsSubmitting(false);
       return;
     }
     try {
-      await addSystemSubject(data.newSubjectName); // Add to system first
+      await addSystemSubject(data.newSubjectName); // Now async, add to system first
       await refreshSystemSubjects(); // Refresh system subjects list
       
       const currentSubjects = selectedUser.subjects || [];
@@ -322,8 +324,8 @@ export function TeacherSubjectManager() {
           </DialogHeader>
           <form onSubmit={newSubjectForm.handleSubmit(onSubmitCreateNewSubject)} className="space-y-4">
             <div>
-              <Label htmlFor="newSubjectName">New Subject Name</Label>
-              <Input id="newSubjectName" {...newSubjectForm.register("newSubjectName")} />
+              <Label htmlFor="newSubjectName-modal">New Subject Name</Label>
+              <Input id="newSubjectName-modal" {...newSubjectForm.register("newSubjectName")} autoFocus/>
               {newSubjectForm.formState.errors.newSubjectName && <p className="text-sm text-destructive mt-1">{newSubjectForm.formState.errors.newSubjectName.message}</p>}
             </div>
             <DialogFooter>
@@ -345,8 +347,8 @@ export function TeacherSubjectManager() {
           </DialogHeader>
           <form onSubmit={renameSubjectForm.handleSubmit(onSubmitRenameSubject)} className="space-y-4">
             <div>
-              <Label htmlFor="updatedSubjectName">New Subject Name</Label>
-              <Input id="updatedSubjectName" {...renameSubjectForm.register("updatedSubjectName")} />
+              <Label htmlFor="updatedSubjectName-modal">New Subject Name</Label>
+              <Input id="updatedSubjectName-modal" {...renameSubjectForm.register("updatedSubjectName")} autoFocus/>
               {renameSubjectForm.formState.errors.updatedSubjectName && <p className="text-sm text-destructive mt-1">{renameSubjectForm.formState.errors.updatedSubjectName.message}</p>}
             </div>
             <DialogFooter>
@@ -377,13 +379,13 @@ export function TeacherSubjectManager() {
                                         <div key={subject} className="flex items-center space-x-2">
                                             <Checkbox
                                                 id={`assign-${subject.replace(/\s+/g, '-')}`}
-                                                checked={field.value.includes(subject)}
+                                                checked={(field.value || []).includes(subject)}
                                                 onCheckedChange={(checked) => {
-                                                    const current = field.value;
+                                                    const currentVal = field.value || [];
                                                     if (checked) {
-                                                        field.onChange([...current, subject]);
+                                                        field.onChange([...currentVal, subject]);
                                                     } else {
-                                                        field.onChange(current.filter(s => s !== subject));
+                                                        field.onChange(currentVal.filter(s => s !== subject));
                                                     }
                                                 }}
                                             />

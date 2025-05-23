@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllAvailableSubjects } from '@/lib/mockData';
+import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllAvailableSubjects } from '@/lib/mockData'; // getAllAvailableSubjects is now async
 import type { Mark, Student, User, AssessmentType } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
 import { PlusCircle, Edit2, Loader2, Search, GraduationCap, AlertCircle, Trash2 } from 'lucide-react';
@@ -58,7 +58,7 @@ interface AggregatedMarkEntry {
   studentId: string;
   studentName: string;
   subject: string;
-  marks: Partial<Record<AssessmentType, Mark>>; // Store the full Mark object for updates/deletes
+  marks: Partial<Record<AssessmentType, Mark>>; 
 }
 
 
@@ -66,7 +66,7 @@ export function MarksManagement() {
   const { user } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
   const [allMarks, setAllMarks] = useState<(Mark & { studentName?: string })[]>([]);
-  const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
+  const [_systemSubjects, setSystemSubjects] = useState<string[]>([]); // Renamed to avoid conflict, not directly used
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -74,7 +74,14 @@ export function MarksManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
 
-  const userManagedSubjects = useMemo(() => user?.subjects || [], [user]);
+  const userManagedSubjects = useMemo(() => {
+    if (user?.role === 'admin' && user.subjects && user.subjects.length > 0) {
+        return user.subjects; // Admins use their general subjects if assigned
+    }
+    // For teachers, this might later be scoped by semester
+    return user?.subjects || [];
+  }, [user]);
+
   const canManageAnySubject = userManagedSubjects.length > 0;
 
   const form = useForm<StudentSubjectMarksFormData>({
@@ -93,13 +100,13 @@ export function MarksManagement() {
   async function fetchInitialData() {
     setIsLoading(true);
     try {
-      const [fetchedStudents, fetchedSubjects, allStudentMarks] = await Promise.all([
+      // getAllAvailableSubjects is now async, but not directly used here after refactor, 
+      // userManagedSubjects provides the list for the dropdown.
+      const [fetchedStudents, allStudentMarks] = await Promise.all([
         getAllStudents(),
-        getAllAvailableSubjects(),
         getAllStudents().then(stds => stds.reduce((acc, student) => acc.concat(student.marks.map(m => ({ ...m, studentName: student.name }))), [] as (Mark & { studentName?: string })[]))
       ]);
       setStudents(fetchedStudents);
-      setSystemSubjects(fetchedSubjects);
       setAllMarks(allStudentMarks);
       setIsLoading(false);
     } catch (error) {
@@ -188,7 +195,7 @@ export function MarksManagement() {
         const score = data.scores[type];
         const existingMark = editingAggregatedMark?.marks[type];
 
-        if (score !== null && score !== undefined) { // Score is entered or changed
+        if (score !== null && score !== undefined) { 
           const markPayload = {
             studentId: data.studentId,
             subject: data.subject,
@@ -203,7 +210,7 @@ export function MarksManagement() {
           } else {
             await apiAddMark(markPayload);
           }
-        } else if (existingMark) { // Score is cleared, and mark existed
+        } else if (existingMark) { 
           await apiDeleteMark(existingMark.id);
         }
       }
@@ -458,5 +465,4 @@ export function MarksManagement() {
   );
 }
 
-// Re-export FormItem from shadcn/ui if not already directly available for FormField
 import { FormField, FormItem } from '@/components/ui/form';
