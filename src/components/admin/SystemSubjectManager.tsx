@@ -137,6 +137,7 @@ export function SystemSubjectManager() {
   };
 
   const handleDeleteSubject = async (subjectName: string) => {
+    setIsSubmitting(true);
     const success = await deleteSystemSubject(subjectName);
     if (success) {
       toast({ title: "Subject Deleted", description: `"${subjectName}" has been deleted from Firestore.` });
@@ -144,6 +145,7 @@ export function SystemSubjectManager() {
       toast({ title: "Error Deleting Subject", description: `Could not delete "${subjectName}". It might be in use or an error occurred.`, variant: "destructive" });
     }
     await loadSubjects(); 
+    setIsSubmitting(false);
   };
 
   const FirestoreStatusIndicator = () => {
@@ -236,9 +238,13 @@ export function SystemSubjectManager() {
                           </UIAlertDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleDeleteSubject(subject)} className="bg-destructive hover:bg-destructive/80">
-                            Delete Subject
+                          <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
+                          <AlertDialogAction 
+                            onClick={() => handleDeleteSubject(subject)} 
+                            className="bg-destructive hover:bg-destructive/80"
+                            disabled={isSubmitting}
+                          >
+                            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete Subject"}
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
