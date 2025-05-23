@@ -23,7 +23,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Role, User } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { getAllUsers } from "@/lib/mockData"; // Changed from getAllTeachers to getAllUsers
+import { getAllTeachers } from "@/lib/mockData"; // Changed from getAllUsers
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -73,10 +73,9 @@ export default function RegisterPage() {
     if (isClient && selectedRole === 'student') {
       const fetchTeachers = async () => {
         try {
-          // Fetch all users and filter for teachers/admins, as students might want to know who is teaching
-          const allUsersData = await getAllUsers();
-          const assignableTeachers = allUsersData.filter(u => u.role === 'teacher' || u.role === 'admin');
-          setTeachersList(assignableTeachers);
+          // Optimized: Directly fetch users with role 'teacher' or 'admin'
+          const assignableStaff = await getAllTeachers();
+          setTeachersList(assignableStaff);
         } catch (error) {
           console.error("Failed to fetch teachers/admins:", error);
           toast({ title: "Error", description: "Could not load teacher information.", variant: "destructive" });
@@ -96,11 +95,7 @@ export default function RegisterPage() {
         return;
     }
 
-    const studentPrn = values.role === 'student' && values.prn
-                       ? values.prn.trim().toUpperCase()
-                       : undefined; // ensure PRN is only passed for students
-
-    const success = await register(values.name, values.email, values.password, values.role as Role, studentPrn);
+    const success = await register(values.name, values.email, values.password, values.role as Role, values.prn);
     setIsLoading(false);
     if (success) {
       toast({ title: "Registration Successful", description: "Welcome to CampusMarks!" });
@@ -116,7 +111,7 @@ export default function RegisterPage() {
 
   if (!isClient) {
     return (
-      <div className="text-center">
+      <div className="text-center p-6">
         <p>Loading form...</p>
       </div>
     );
@@ -269,7 +264,11 @@ export default function RegisterPage() {
               )}
             </>
           )}
-          <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isLoading}>
+          <Button 
+            type="submit" 
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
+            disabled={isLoading}
+          >
             {isLoading ? "Creating Account..." : "Create Account"}
           </Button>
         </form>
