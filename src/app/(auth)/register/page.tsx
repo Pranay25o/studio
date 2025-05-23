@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AtSign, KeyRound, User as UserIcon, Info, BookUser } from "lucide-react"; // Removed Users
+import { AtSign, KeyRound, User as UserIcon, Info, BookUser } from "lucide-react";
 import React, { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -23,7 +23,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
 import type { Role, User } from "@/types";
 import { useToast } from "@/hooks/use-toast";
-import { getAllTeachers } from "@/lib/mockData"; // Changed from getAllUsers
+import { getAllTeachers } from "@/lib/mockData";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -73,7 +73,6 @@ export default function RegisterPage() {
     if (isClient && selectedRole === 'student') {
       const fetchTeachers = async () => {
         try {
-          // Optimized: Directly fetch users with role 'teacher' or 'admin'
           const assignableStaff = await getAllTeachers();
           setTeachersList(assignableStaff);
         } catch (error) {
@@ -87,13 +86,21 @@ export default function RegisterPage() {
     }
   }, [selectedRole, toast, isClient]);
 
+  useEffect(() => {
+    if (selectedRole === 'admin' && isClient) {
+      toast({
+        title: "Admin Registration",
+        description: "Note: Admin registration through this public form is typically disabled for security. This option is enabled for setup.",
+        variant: "default",
+        duration: 7000,
+      });
+    }
+  }, [selectedRole, toast, isClient]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
-    if (values.role === 'admin') {
-        toast({ title: "Registration Info", description: "Admin registration is not allowed through this form.", variant: "default" });
-        setIsLoading(false);
-        return;
-    }
+    // The AuthContext.register function will now handle the toast for admin registration attempt if it's disallowed there.
+    // However, with the form change, it *will* allow admin registration if selected.
 
     const success = await register(values.name, values.email, values.password, values.role as Role, values.prn);
     setIsLoading(false);
@@ -103,6 +110,8 @@ export default function RegisterPage() {
         router.push("/teacher/dashboard");
       } else if (values.role === "student") {
         router.push("/student/dashboard");
+      } else if (values.role === "admin") {
+        router.push("/admin/dashboard");
       }
     } else {
       // Toast for failure is handled by AuthContext or createUser
@@ -112,7 +121,7 @@ export default function RegisterPage() {
   if (!isClient) {
     return (
       <div className="text-center p-6">
-        <p>Loading form...</p>
+        <p className="text-lg text-muted-foreground">Loading form...</p>
       </div>
     );
   }
@@ -201,6 +210,12 @@ export default function RegisterPage() {
                       </FormControl>
                       <FormLabel htmlFor="reg-role-teacher" className="font-normal text-foreground/90">Teacher</FormLabel>
                     </FormItem>
+                    <FormItem className="flex items-center space-x-2 space-y-0">
+                      <FormControl>
+                        <RadioGroupItem value="admin" id="reg-role-admin"/>
+                      </FormControl>
+                      <FormLabel htmlFor="reg-role-admin" className="font-normal text-foreground/90">Admin</FormLabel>
+                    </FormItem>
                   </RadioGroup>
                 </FormControl>
                 <FormMessage />
@@ -264,12 +279,12 @@ export default function RegisterPage() {
               )}
             </>
           )}
-          <Button 
-            type="submit" 
-            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
-            disabled={isLoading}
+          <Button
+            type="submit"
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            disabled={isLoading || (!isClient && selectedRole === 'admin')}
           >
-            {isLoading ? "Creating Account..." : "Create Account"}
+            {(!isClient && selectedRole === 'admin') ? "Loading..." : (isLoading ? "Creating Account..." : "Create Account")}
           </Button>
         </form>
       </Form>
@@ -282,3 +297,5 @@ export default function RegisterPage() {
     </>
   );
 }
+
+    

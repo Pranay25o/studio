@@ -74,24 +74,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Login Failed", description: "Role mismatch. Please select the correct role.", variant: "destructive" });
         }
       } else {
-        // User not found
         console.error(`[AuthContext] USER NOT FOUND for email (robustly trimmed, lowercased): |${email}|. Login failed.`);
         if (email === 'admin@example.com') {
-          toast({
-            title: "Admin Login Failed",
-            description: "The default admin 'admin@example.com' was not found. Please register this account with the 'Admin' role.",
-            variant: "destructive",
-            duration: 8000,
-          });
+            toast({
+                title: "Admin Login Failed",
+                description: "The user 'admin@example.com' was not found. Please register this account with the 'Admin' role via the registration page (Admin role temporarily enabled for setup).",
+                variant: "destructive",
+                duration: 10000,
+            });
         } else {
-          toast({ title: "Login Failed", description: "User not found or incorrect credentials/role.", variant: "destructive" });
+            toast({ title: "Login Failed", description: "User not found or incorrect credentials/role.", variant: "destructive" });
         }
       }
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
         console.error("[AuthContext] Firebase Misconfigured Error during login:", error);
         setIsFirebaseMisconfiguredError(true);
-        toast({ title: "Firebase Misconfigured!", description: "CRITICAL: Please update src/lib/firebaseConfig.ts with your project credentials. Login cannot proceed.", variant: "destructive", duration: 15000 });
+        // Toast for misconfiguration is handled by the LoginPage now
       } else if (error.message === "DatabaseQueryFailed") {
         toast({ title: "Login Error", description: "Could not connect to the database to verify credentials. Please try again later.", variant: "destructive" });
       } else {
@@ -111,13 +110,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const cleanedName = robustTrim(name);
     const cleanedPrn = prn ? robustTrim(prn).toUpperCase() : undefined;
 
+    // Note: The registration page component itself now allows selecting 'admin'.
+    // In a production scenario, you would add a check here to prevent 'admin' role registration
+    // if it wasn't coming from a trusted source, or remove 'admin' from public form options entirely.
+    // For this setup, we are allowing it so the user can create their initial admin.
+
     try {
       const newUserPayload: Parameters<typeof apiCreateUser>[0] = {
         email: email,
         name: cleanedName,
         role: role,
-        subjects: [], // Initialize with empty arrays
-        semesterAssignments: [], // Initialize with empty arrays
+        subjects: [],
+        semesterAssignments: [],
       };
       if (role === 'student' && cleanedPrn) {
         newUserPayload.prn = cleanedPrn;
@@ -130,7 +134,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
         setIsFirebaseMisconfiguredError(true);
-        toast({ title: "Firebase Misconfigured!", description: "CRITICAL: Please update src/lib/firebaseConfig.ts with your project credentials. Registration cannot proceed.", variant: "destructive", duration: 15000 });
+         // Toast for misconfiguration is handled by the RegisterPage now
       } else {
         console.error('[AuthContext] Registration error:', error);
         toast({ title: "Registration Failed", description: error.message || "An error occurred during registration.", variant: "destructive" });
@@ -165,7 +169,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       } catch (error: any) {
         if (error.message === "FirebaseMisconfigured") {
           setIsFirebaseMisconfiguredError(true);
-          toast({ title: "Firebase Misconfigured!", description: "Cannot refresh session. Please update src/lib/firebaseConfig.ts.", variant: "destructive", duration: 15000 });
+          // Toast for misconfiguration is handled by the pages now
         } else {
           console.error('[AuthContext] Error refreshing user session:', error);
         }
@@ -189,3 +193,5 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
+    
