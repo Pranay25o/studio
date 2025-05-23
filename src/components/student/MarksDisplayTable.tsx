@@ -6,7 +6,6 @@ import { ASSESSMENT_MAX_SCORES } from '@/types';
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
@@ -14,7 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Award, BarChart3, TrendingUp, TrendingDown, Percent } from 'lucide-react';
+import { Award, BarChart3, TrendingUp, Percent, BookOpenCheck } from 'lucide-react';
 
 interface MarksDisplayTableProps {
   marks: Mark[];
@@ -30,18 +29,12 @@ interface SubjectPerformance {
   components: Mark[];
 }
 
-// A more nuanced grading system could be defined here
-// For example:
-// const getOverallGrade = (percentage: number): string => {
-// if (percentage >= 90) return "A+ (Distinction)";
-// if (percentage >= 80) return "A (Excellent)";
-// if (percentage >= 70) return "B+ (Very Good)";
-// if (percentage >= 60) return "B (Good)";
-// if (percentage >= 50) return "C (Satisfactory)";
-// if (percentage >= 40) return "D (Pass)";
-// return "F (Fail)";
-// };
-
+const ASSESSMENT_ORDER: Record<AssessmentType, number> = {
+  CA1: 1,
+  CA2: 2,
+  MidSem: 3,
+  EndSem: 4,
+};
 
 export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTableProps) {
   if (!marks || marks.length === 0) {
@@ -63,22 +56,16 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
     }
     subjectEntry.components.push(mark);
     subjectEntry.totalObtained += mark.score;
-    // Assuming all components of a subject should ideally be present for full max marks
-    // For this calculation, we sum max scores of available components. A more robust system might expect all components.
     subjectEntry.totalMax += mark.maxScore; 
     return acc;
   }, [] as SubjectPerformance[]);
 
   subjectWisePerformance.forEach(subj => {
-    // Calculate total possible max score for a subject if all components were present
-    const fullMaxScoreForSubject = Object.values(ASSESSMENT_MAX_SCORES).reduce((sum, val) => sum + val, 0);
-    // Use the sum of maxScores of *entered* components for percentage if not all are present,
-    // or use fullMaxScoreForSubject if you want to penalize for missing components.
-    // For now, using entered components' max scores sum.
     subj.percentage = subj.totalMax > 0 ? (subj.totalObtained / subj.totalMax) * 100 : 0;
-    // If you want percentage based on full possible marks (100 per subject)
-    // subj.percentage = fullMaxScoreForSubject > 0 ? (subj.totalObtained / fullMaxScoreForSubject) * 100 : 0;
   });
+
+  // Sort subjects alphabetically for consistent display order
+  subjectWisePerformance.sort((a, b) => a.subject.localeCompare(b.subject));
 
   const overallAveragePercentage = subjectWisePerformance.length > 0
     ? subjectWisePerformance.reduce((sum, subj) => sum + subj.percentage, 0) / subjectWisePerformance.length
@@ -122,35 +109,59 @@ export function MarksDisplayTable({ marks, studentName, prn }: MarksDisplayTable
             </div>
         </div>
         
-        <h3 className="text-xl font-semibold p-6 pb-2 text-foreground">Detailed Marks by Component</h3>
-        <Table>
-          <TableCaption className="py-4 text-sm text-muted-foreground">
-            A summary of your academic performance components.
-          </TableCaption>
-          <TableHeader>
-            <TableRow className="bg-muted/50">
-              <TableHead className="w-[200px] font-semibold text-foreground">Subject</TableHead>
-              <TableHead className="font-semibold text-foreground">Assessment Type</TableHead>
-              <TableHead className="text-right font-semibold text-foreground">Score</TableHead>
-              <TableHead className="text-right font-semibold text-foreground">Max Score</TableHead>
-              <TableHead className="text-right font-semibold text-foreground">Percentage</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {marks.sort((a,b) => a.subject.localeCompare(b.subject) || a.assessmentType.localeCompare(b.assessmentType)).map((mark) => (
-              <TableRow key={mark.id} className="hover:bg-muted/30">
-                <TableCell className="font-medium">{mark.subject}</TableCell>
-                <TableCell><Badge variant="outline">{mark.assessmentType}</Badge></TableCell>
-                <TableCell className="text-right">{mark.score}</TableCell>
-                <TableCell className="text-right">{mark.maxScore}</TableCell>
-                <TableCell className="text-right font-semibold text-primary">
-                  {mark.maxScore > 0 ? ((mark.score / mark.maxScore) * 100).toFixed(2) : 'N/A'}%
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <div className="p-6">
+          <h3 className="text-xl font-semibold mb-6 flex items-center gap-2">
+            <BookOpenCheck className="text-primary" />
+            Detailed Marks by Subject
+          </h3>
+          {subjectWisePerformance.length > 0 ? (
+            <div className="space-y-6">
+              {subjectWisePerformance.map((subjectPerf) => (
+                <Card key={subjectPerf.subject} className="bg-card shadow-md hover:shadow-lg transition-shadow duration-300">
+                  <CardHeader className="pb-3 border-b bg-muted/30">
+                    <CardTitle className="text-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                      <span className="text-primary">{subjectPerf.subject}</span>
+                      <Badge variant="outline" className="text-base px-3 py-1 border-primary text-primary">
+                        Total: {subjectPerf.totalObtained} / {subjectPerf.totalMax} ({subjectPerf.percentage.toFixed(2)}%)
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription className="mt-1">Breakdown of assessment components.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-4">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="font-semibold text-foreground">Assessment Type</TableHead>
+                          <TableHead className="text-right font-semibold text-foreground">Score</TableHead>
+                          <TableHead className="text-right font-semibold text-foreground">Max Score</TableHead>
+                          <TableHead className="text-right font-semibold text-foreground">Percentage</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {subjectPerf.components
+                          .sort((a,b) => ASSESSMENT_ORDER[a.assessmentType] - ASSESSMENT_ORDER[b.assessmentType])
+                          .map((mark) => (
+                          <TableRow key={mark.id} className="hover:bg-muted/20">
+                            <TableCell><Badge variant="secondary">{mark.assessmentType}</Badge></TableCell>
+                            <TableCell className="text-right">{mark.score}</TableCell>
+                            <TableCell className="text-right">{mark.maxScore}</TableCell>
+                            <TableCell className="text-right font-semibold text-primary">
+                              {mark.maxScore > 0 ? ((mark.score / mark.maxScore) * 100).toFixed(2) : 'N/A'}%
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <p className="text-muted-foreground text-center py-4">No detailed marks available for any subject.</p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
 }
+
