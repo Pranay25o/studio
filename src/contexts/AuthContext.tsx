@@ -6,7 +6,7 @@ import type { User, Role } from '@/types';
 import { mockUsers, getUserByEmail, createUser as apiCreateUser } from '@/lib/mockData';
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { useToast } from '@/hooks/use-toast'; // Import useToast
+import { useToast } from '@/hooks/use-toast';
 
 interface AuthContextType {
   user: User | null;
@@ -15,16 +15,23 @@ interface AuthContextType {
   login: (email: string, pass: string, roleAttempt: Role) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, pass: string, role: Role, prn?: string) => Promise<boolean>;
-  refreshAuthUser: () => Promise<void>; // New function
+  refreshAuthUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// A more robust trim function
+const robustTrim = (str: string): string => {
+  if (typeof str !== 'string') return '';
+  // Removes leading/trailing Unicode whitespace including BOM and non-breaking spaces
+  return str.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, '');
+};
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
-  const { toast } = useToast(); // Initialize toast
+  const { toast } = useToast();
 
   useEffect(() => {
     const storedUser = sessionStorage.getItem('campusUser');
@@ -42,10 +49,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
-    const email = emailInput.trim().toLowerCase(); // Trim and lowercase
-    console.log('[AuthContext] LOGIN ATTEMPT: Email (trimmed, lowercased)="', email, '", RoleAttempt="', roleAttempt, '"');
     
-    const foundUser = await getUserByEmail(email);
+    const cleanedEmailInput = robustTrim(emailInput);
+    const email = cleanedEmailInput.toLowerCase();
+
+    console.log('[AuthContext] LOGIN ATTEMPT: Email (robustly trimmed, lowercased)="', email, '", RoleAttempt="', roleAttempt, '"');
+    
+    const foundUser = await getUserByEmail(email); 
     
     if (foundUser) {
       console.log('[AuthContext] USER FOUND: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '"');
@@ -61,7 +71,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.error('[AuthContext] ROLE MISMATCH: Stored role is "', foundUser.role, '" but attempted role was "', roleAttempt, '". Login failed.');
       }
     } else {
-      console.error('[AuthContext] USER NOT FOUND for email (trimmed, lowercased): "', email, '". Login failed.');
+      console.error('[AuthContext] USER NOT FOUND for email (robustly trimmed, lowercased): "', email, '". Login failed.');
     }
 
     console.log('[AuthContext] Overall login outcome: FAILED.');
@@ -69,14 +79,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return false;
   };
 
-  const register = async (name: string, email: string, _pass: string, role: Role, prn?: string): Promise<boolean> => {
+  const register = async (name: string, emailInput: string, _pass: string, role: Role, prn?: string): Promise<boolean> => {
     setIsLoading(true);
-    const existingUser = await getUserByEmail(email.trim());
+    const email = robustTrim(emailInput).toLowerCase();
+    const existingUser = await getUserByEmail(email);
     if (existingUser) {
       setIsLoading(false);
       return false; 
     }
-    const newUser = await apiCreateUser({ email: email.trim(), name, role, prn });
+    const newUser = await apiCreateUser({ email: email, name, role, prn });
     setUser(newUser);
     sessionStorage.setItem('campusUser', JSON.stringify(newUser));
     setIsLoading(false);
@@ -92,7 +103,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const refreshAuthUser = async () => {
     if (user?.email) {
       console.log('[AuthContext] Attempting to refresh user session for:', user.email);
-      const latestUserData = await getUserByEmail(user.email);
+      const latestUserData = await getUserByEmail(user.email); 
       if (latestUserData) {
         setUser(latestUserData);
         sessionStorage.setItem('campusUser', JSON.stringify(latestUserData));
@@ -100,8 +111,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         toast({ title: "Session Updated", description: "Your user details and permissions have been refreshed." });
       } else {
         console.warn('[AuthContext] Could not find user data to refresh session for:', user.email);
-        // Optionally, could log out the user if their data is no longer found
-        // logout(); 
       }
     } else {
       console.log('[AuthContext] No active user to refresh.');
