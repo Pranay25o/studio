@@ -30,7 +30,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from '../ui/scroll-area';
-import { Alert, AlertTitle as UIAlertTitle } from '../ui/alert'; // Renamed AlertTitle to avoid conflict
+import { Alert, AlertDescription as UIAlertDescription, AlertTitle as UIAlertTitle } from '../ui/alert'; // Renamed AlertTitle to avoid conflict
 import { Badge } from '@/components/ui/badge';
 
 
@@ -65,27 +65,34 @@ export function SystemSubjectManager() {
   async function loadSubjects() {
     setIsLoading(true);
     setFirestoreStatus('checking');
+    setSubjects([]); // Clear previous data
+    setTotalSubjectsLoaded(0); // Reset count
+
     try {
-      const fetchedSubjects = await getAllAvailableSubjects();
-      // Crude check for placeholder config values
-      if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" || 
-          (typeof window !== "undefined" && 
-           (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE")) {
-            setFirestoreStatus('misconfigured');
-            setSubjects([]);
-            setTotalSubjectsLoaded(0);
-            toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
+      // Explicitly check for placeholder API key
+      const isMisconfigured = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" ||
+                             (typeof window !== "undefined" &&
+                              (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE");
+      
+      if (isMisconfigured) {
+        setFirestoreStatus('misconfigured');
+        toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
       } else {
+        const fetchedSubjects = await getAllAvailableSubjects();
         setSubjects(fetchedSubjects);
         setTotalSubjectsLoaded(fetchedSubjects.length);
         setFirestoreStatus('connected');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading subjects from Firestore:", error);
-      toast({ title: "Error loading subjects", description: "Could not fetch subjects from Firestore. Check console for details.", variant: "destructive" });
-      setSubjects([]);
-      setTotalSubjectsLoaded(0);
-      setFirestoreStatus('error');
+      // Check if the error is due to misconfiguration (e.g., if getAllAvailableSubjects throws "FirebaseMisconfigured")
+      if (error.message === "FirebaseMisconfigured") {
+         setFirestoreStatus('misconfigured');
+         toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
+      } else {
+        setFirestoreStatus('error');
+        toast({ title: "Error loading subjects", description: "Could not fetch subjects from Firestore. Check console for details.", variant: "destructive" });
+      }
     }
     setIsLoading(false);
   }
@@ -184,25 +191,25 @@ export function SystemSubjectManager() {
            <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <UIAlertTitle>Firebase Configuration Needed</UIAlertTitle>
-            <CardDescription>
+            <UIAlertDescription>
               The application is using placeholder Firebase credentials. Please update <code>src/lib/firebaseConfig.ts</code> with your actual Firebase project configuration to connect to Firestore.
-            </CardDescription>
+            </UIAlertDescription>
           </Alert>
         ) : firestoreStatus === 'error' ? (
            <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <UIAlertTitle>Firestore Connection Error</UIAlertTitle>
-            <CardDescription>
+            <UIAlertDescription>
               Could not connect to Firestore to load subjects. Please check your Firebase setup, security rules, and internet connection. See browser console for more details.
-            </CardDescription>
+            </UIAlertDescription>
           </Alert>
         ) : subjects.length === 0 && firestoreStatus === 'connected' ? (
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <UIAlertTitle>No System Subjects Found</UIAlertTitle>
-            <CardDescription>
+            <UIAlertDescription>
               There are currently no subjects defined in Firestore. Click "Add New Subject" to get started.
-            </CardDescription>
+            </UIAlertDescription>
           </Alert>
         ) : (
           <ScrollArea className="h-96">
@@ -223,10 +230,10 @@ export function SystemSubjectManager() {
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-                          <AlertDialogDescription>
+                          <UIAlertDescription>
                             This will permanently delete the subject "{subject}" from Firestore.
                             This action cannot be undone.
-                          </AlertDialogDescription>
+                          </UIAlertDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Cancel</AlertDialogCancel>

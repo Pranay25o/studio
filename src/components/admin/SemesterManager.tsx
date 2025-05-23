@@ -63,22 +63,27 @@ export function SemesterManager() {
   async function loadSemesters() {
     setIsLoading(true);
     setFirestoreStatus('checking');
+    setSemesters([]); // Clear previous data
+    setTotalSemestersLoaded(0); // Reset count
+
     try {
-      const fetchedSemesters = await getSemesters();
-      if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" ||
-          (typeof window !== "undefined" && 
-           (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE")) {
+      // Explicitly check for placeholder API key
+      const isMisconfigured = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" ||
+                             (typeof window !== "undefined" &&
+                              (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE");
+
+      if (isMisconfigured) {
         setFirestoreStatus('misconfigured');
-        setSemesters([]);
-        setTotalSemestersLoaded(0);
         toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
       } else {
+        const fetchedSemesters = await getSemesters();
         setSemesters(fetchedSemesters);
         setTotalSemestersLoaded(fetchedSemesters.length);
         setFirestoreStatus('connected');
       }
     } catch (error: any) {
       console.error("Error loading semesters from Firestore:", error);
+      // Check if the error is due to misconfiguration (e.g., if getSemesters throws "FirebaseMisconfigured")
       if (error.message === "FirebaseMisconfigured") {
          setFirestoreStatus('misconfigured');
          toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
@@ -86,8 +91,6 @@ export function SemesterManager() {
         setFirestoreStatus('error');
         toast({ title: "Error loading semesters", description: "Could not fetch semesters from Firestore. Check console for details.", variant: "destructive" });
       }
-      setSemesters([]);
-      setTotalSemestersLoaded(0);
     }
     setIsLoading(false);
   }

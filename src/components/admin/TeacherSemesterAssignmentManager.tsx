@@ -8,7 +8,7 @@ import * as z from 'zod';
 import {
   getAllUsers,
   getAllAvailableSubjects,
-  getSemesters, // Now async, fetches from Firestore
+  getSemesters, 
   assignSubjectsToTeacherForSemester as apiAssignSubjectsToTeacherForSemester,
 } from '@/lib/mockData';
 import type { User, Semester } from '@/types';
@@ -19,10 +19,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
-import { Loader2, BookUser, CalendarDays, Users, AlertCircle, Save } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle as UIAlertTitle } from '@/components/ui/alert'; // Renamed AlertTitle
+import { Loader2, BookUser, CalendarDays, Users, AlertCircle, Save, Wifi, WifiOff, HelpCircle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle as UIAlertTitle } from '@/components/ui/alert'; 
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
 
 const teacherSemesterAssignmentSchema = z.object({
   teacherId: z.string().min(1, "Teacher selection is required."),
@@ -32,12 +33,18 @@ const teacherSemesterAssignmentSchema = z.object({
 
 type TeacherSemesterAssignmentFormData = z.infer<typeof teacherSemesterAssignmentSchema>;
 
+type DataLoadingStatus = 'idle' | 'loading' | 'success' | 'error' | 'misconfigured';
+
 export function TeacherSemesterAssignmentManager() {
   const { refreshAuthUser, user: loggedInUser } = useAuth();
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
-  const [semesters, setSemesters] = useState<Semester[]>([]); // Will be populated from Firestore
-  const [isLoading, setIsLoading] = useState(true);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  
+  const [usersStatus, setUsersStatus] = useState<DataLoadingStatus>('idle');
+  const [subjectsStatus, setSubjectsStatus] = useState<DataLoadingStatus>('idle');
+  const [semestersStatus, setSemestersStatus] = useState<DataLoadingStatus>('idle');
+  
   const [isSubmitting, setIsSubmitting] = useState(false);
   
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
@@ -59,23 +66,65 @@ export function TeacherSemesterAssignmentManager() {
   }, []);
 
   async function fetchInitialData() {
-    setIsLoading(true);
-    try {
-      const [fetchedUsers, fetchedSysSubjects, fetchedSemesters] = await Promise.all([
-        getAllUsers(),
-        getAllAvailableSubjects(),
-        getSemesters(), // Now fetches from Firestore
-      ]);
-      setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
-      setSystemSubjects(fetchedSysSubjects);
-      setSemesters(fetchedSemesters);
-    } catch (error) {
-      console.error("Error fetching initial data for semester assignments:", error);
-      toast({ title: "Error fetching data", description: "Could not load initial selection data. Check Firestore connection.", variant: "destructive" });
+    setUsersStatus('loading');
+    setSubjectsStatus('loading');
+    setSemestersStatus('loading');
+
+    const isFirebaseMisconfigured = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" ||
+                                 (typeof window !== "undefined" &&
+                                  (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE");
+
+    if (isFirebaseMisconfigured) {
+      toast({ title: "Firebase Misconfigured", description: "Update firebaseConfig.ts. Firestore-dependent data (subjects, semesters) won't load.", variant: "destructive", duration: 10000 });
+      setSubjectsStatus('misconfigured');
+      setSemestersStatus('misconfigured');
     }
-    setIsLoading(false);
+    
+    try {
+      const fetchedUsers = await getAllUsers();
+      setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
+      setUsersStatus('success');
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      toast({ title: "Error fetching users", description: "Could not load user list.", variant: "destructive" });
+      setUsersStatus('error');
+    }
+
+    if (!isFirebaseMisconfigured) {
+      try {
+        const fetchedSysSubjects = await getAllAvailableSubjects();
+        setSystemSubjects(fetchedSysSubjects);
+        setSubjectsStatus('success');
+      } catch (error: any) {
+        console.error("Error fetching system subjects:", error);
+        if (error.message === "FirebaseMisconfigured") { // mockData might throw this
+          setSubjectsStatus('misconfigured');
+        } else {
+          setSubjectsStatus('error');
+        }
+        toast({ title: "Error fetching system subjects", description: "Could not load subject list from Firestore.", variant: "destructive" });
+      }
+
+      try {
+        const fetchedSemesters = await getSemesters();
+        setSemesters(fetchedSemesters);
+        setSemestersStatus('success');
+      } catch (error: any) {
+        console.error("Error fetching semesters:", error);
+         if (error.message === "FirebaseMisconfigured") { // mockData might throw this
+          setSemestersStatus('misconfigured');
+        } else {
+          setSemestersStatus('error');
+        }
+        toast({ title: "Error fetching semesters", description: "Could not load semester list from Firestore.", variant: "destructive" });
+      }
+    }
   }
   
+  const isLoadingInitialData = usersStatus === 'loading' || subjectsStatus === 'loading' || semestersStatus === 'loading';
+  const hasLoadingError = usersStatus === 'error' || subjectsStatus === 'error' || semestersStatus === 'error';
+  const isMisconfigured = subjectsStatus === 'misconfigured' || semestersStatus === 'misconfigured';
+
   const teachers = useMemo(() => allUsers.filter(u => u.role === 'teacher' || u.role === 'admin'), [allUsers]);
 
   useEffect(() => {
@@ -95,6 +144,7 @@ export function TeacherSemesterAssignmentManager() {
       await apiAssignSubjectsToTeacherForSemester(data.teacherId, data.semester, data.assignedSubjects || []);
       toast({ title: "Assignments Updated", description: `Subject assignments for ${allUsers.find(u=>u.id === data.teacherId)?.name} in ${data.semester} have been saved.` });
       
+      // Refresh local user data to reflect potential changes
       const fetchedUsers = await getAllUsers();
       setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
 
@@ -108,9 +158,56 @@ export function TeacherSemesterAssignmentManager() {
     setIsSubmitting(false);
   };
 
-  if (isLoading) {
-    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading data...</span></div>;
+  if (isLoadingInitialData) {
+    return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading assignment data...</span></div>;
   }
+
+  if (isMisconfigured) {
+    return (
+      <Card className="w-full max-w-3xl mx-auto shadow-xl">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-6 w-6" /> Firebase Configuration Error
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <UIAlertTitle>Firebase Misconfigured</UIAlertTitle>
+            <AlertDescription>
+              Please update <code>src/lib/firebaseConfig.ts</code> with your project credentials.
+              Subjects and Semesters data cannot be loaded from Firestore.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (hasLoadingError) {
+     return (
+      <Card className="w-full max-w-3xl mx-auto shadow-xl">
+        <CardHeader>
+          <CardTitle className="text-2xl flex items-center gap-2 text-destructive">
+            <AlertCircle className="h-6 w-6" /> Data Loading Error
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <UIAlertTitle>Failed to Load Data</UIAlertTitle>
+            <AlertDescription>
+              Could not load all necessary data (users, subjects, or semesters). Please check your console for errors and ensure Firestore is accessible.
+              {usersStatus === 'error' && <p>- Failed to load users.</p>}
+              {subjectsStatus === 'error' && <p>- Failed to load system subjects from Firestore.</p>}
+              {semestersStatus === 'error' && <p>- Failed to load semesters from Firestore.</p>}
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
 
   return (
     <Card className="w-full max-w-3xl mx-auto shadow-xl">
@@ -133,11 +230,15 @@ export function TeacherSemesterAssignmentManager() {
                     onValueChange={(value) => {
                       field.onChange(value);
                       setSelectedTeacherId(value);
+                      setSelectedSemester(''); // Reset semester when teacher changes
+                      form.setValue('semester', '');
+                      form.setValue('assignedSubjects', []);
                     }} 
                     value={field.value}
+                    disabled={usersStatus !== 'success' || teachers.length === 0}
                   >
-                    <SelectTrigger id="teacherId-select">
-                      <SelectValue placeholder="Choose a teacher/admin..." />
+                    <SelectTrigger id="teacherId-select" disabled={usersStatus !== 'success' || teachers.length === 0}>
+                      <SelectValue placeholder={usersStatus === 'success' && teachers.length > 0 ? "Choose a teacher/admin..." : (usersStatus === 'success' ? "No teachers/admins found" : "Loading teachers...")} />
                     </SelectTrigger>
                     <SelectContent>
                       {teachers.map(user => (
@@ -163,10 +264,10 @@ export function TeacherSemesterAssignmentManager() {
                       setSelectedSemester(value);
                     }}
                     value={field.value}
-                    disabled={!selectedTeacherId}
+                    disabled={!selectedTeacherId || semestersStatus !== 'success' || semesters.length === 0}
                   >
-                    <SelectTrigger id="semester-select" disabled={!selectedTeacherId}>
-                      <SelectValue placeholder={selectedTeacherId ? (semesters.length > 0 ? "Choose a semester..." : "No semesters defined") : "Select teacher first..."} />
+                    <SelectTrigger id="semester-select" disabled={!selectedTeacherId || semestersStatus !== 'success' || semesters.length === 0}>
+                      <SelectValue placeholder={!selectedTeacherId ? "Select teacher first" : (semestersStatus === 'success' && semesters.length > 0 ? "Choose a semester..." : (semestersStatus === 'success' ? "No semesters defined" : "Loading semesters..."))} />
                     </SelectTrigger>
                     <SelectContent>
                       {semesters.length > 0 ? (
@@ -199,7 +300,7 @@ export function TeacherSemesterAssignmentManager() {
                 render={({ field }) => (
                   <ScrollArea className="h-60 w-full rounded-md border p-4 my-4 bg-background/50">
                     <div className="space-y-2">
-                      {systemSubjects.length > 0 ? systemSubjects.map(subject => (
+                      {subjectsStatus === 'success' && systemSubjects.length > 0 ? systemSubjects.map(subject => (
                         <div key={subject} className="flex items-center space-x-2">
                           <Checkbox
                             id={`assign-${subject.replace(/\s+/g, '-')}`}
@@ -217,7 +318,7 @@ export function TeacherSemesterAssignmentManager() {
                             {subject}
                           </Label>
                         </div>
-                      )) : <p className="text-sm text-muted-foreground">No system subjects available. Add them via "Manage System Subjects".</p>}
+                      )) : (subjectsStatus === 'success' ? <p className="text-sm text-muted-foreground">No system subjects available. Add them via "Manage System Subjects".</p> : <p className="text-sm text-muted-foreground">Loading subjects...</p>)}
                     </div>
                   </ScrollArea>
                 )}
@@ -226,7 +327,7 @@ export function TeacherSemesterAssignmentManager() {
             </div>
           )}
           
-          {teachers.length === 0 && !isLoading && (
+          {usersStatus === 'success' && teachers.length === 0 && (
              <Alert variant="default" className="mt-4">
                 <Users className="h-4 w-4" />
                 <UIAlertTitle>No Teachers/Admins Found</UIAlertTitle>
@@ -235,7 +336,7 @@ export function TeacherSemesterAssignmentManager() {
                 </AlertDescription>
             </Alert>
           )}
-          {semesters.length === 0 && !isLoading && (
+          {semestersStatus === 'success' && semesters.length === 0 && (
              <Alert variant="default" className="mt-4">
                 <CalendarDays className="h-4 w-4" />
                 <UIAlertTitle>No Semesters Found</UIAlertTitle>
@@ -244,10 +345,19 @@ export function TeacherSemesterAssignmentManager() {
                 </AlertDescription>
             </Alert>
           )}
+          {subjectsStatus === 'success' && systemSubjects.length === 0 && selectedTeacherId && selectedSemester && (
+             <Alert variant="default" className="mt-4">
+                <BookUser className="h-4 w-4" />
+                <UIAlertTitle>No System Subjects Found</UIAlertTitle>
+                <AlertDescription>
+                    There are no system subjects defined in Firestore to assign. Please add them via "Manage System Subjects".
+                </AlertDescription>
+            </Alert>
+          )}
 
 
           <div className="flex justify-end pt-4">
-            <Button type="submit" disabled={isSubmitting || !selectedTeacherId || !selectedSemester} className="min-w-[120px]">
+            <Button type="submit" disabled={isSubmitting || !selectedTeacherId || !selectedSemester || subjectsStatus !== 'success' || semestersStatus !== 'success'} className="min-w-[120px]">
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Save className="mr-2 h-4 w-4" />}
               Save Assignments
             </Button>
@@ -261,4 +371,3 @@ export function TeacherSemesterAssignmentManager() {
 // Helper to import FormField and FormItem if not directly available.
 // These are typically part of '@/components/ui/form'
 import { FormField, FormItem } from '@/components/ui/form';
-
