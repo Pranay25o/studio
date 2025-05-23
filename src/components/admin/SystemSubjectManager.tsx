@@ -30,7 +30,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ScrollArea } from '../ui/scroll-area';
-import { Alert, AlertDescription as UIAlertDescription, AlertTitle as UIAlertTitle } from '../ui/alert'; // Renamed AlertTitle to avoid conflict
+import { Alert, AlertDescription as UIAlertDescription, AlertTitle as UIAlertTitle } from '../ui/alert';
 import { Badge } from '@/components/ui/badge';
 
 
@@ -39,17 +39,18 @@ const subjectSchema = z.object({
 });
 type SubjectFormData = z.infer<typeof subjectSchema>;
 
-type FirestoreStatus = 'checking' | 'connected' | 'error' | 'misconfigured';
+type FirestoreStatus = 'checking' | 'connected' | 'error' | 'misconfigured' | 'initial';
 
 export function SystemSubjectManager() {
   const [subjects, setSubjects] = useState<string[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // For initial load and subsequent reloads
+  const [isSubmitting, setIsSubmitting] = useState(false); // For form submissions
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [subjectToEdit, setSubjectToEdit] = useState<string | null>(null);
-  const [firestoreStatus, setFirestoreStatus] = useState<FirestoreStatus>('checking');
+  const [firestoreStatus, setFirestoreStatus] = useState<FirestoreStatus>('initial');
   const [totalSubjectsLoaded, setTotalSubjectsLoaded] = useState(0);
+  const [componentReady, setComponentReady] = useState(false);
 
 
   const { toast } = useToast();
@@ -59,17 +60,23 @@ export function SystemSubjectManager() {
   });
 
   useEffect(() => {
-    loadSubjects();
+    // Ensure component only loads data once it's mounted on the client
+    setComponentReady(true);
   }, []);
+
+  useEffect(() => {
+    if (componentReady) {
+      loadSubjects();
+    }
+  }, [componentReady]);
 
   async function loadSubjects() {
     setIsLoading(true);
     setFirestoreStatus('checking');
-    setSubjects([]); // Clear previous data
-    setTotalSubjectsLoaded(0); // Reset count
+    setSubjects([]);
+    setTotalSubjectsLoaded(0);
 
     try {
-      // Explicitly check for placeholder API key
       const isMisconfigured = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" ||
                              (typeof window !== "undefined" &&
                               (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE");
@@ -77,15 +84,16 @@ export function SystemSubjectManager() {
       if (isMisconfigured) {
         setFirestoreStatus('misconfigured');
         toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
-      } else {
-        const fetchedSubjects = await getAllAvailableSubjects();
-        setSubjects(fetchedSubjects);
-        setTotalSubjectsLoaded(fetchedSubjects.length);
-        setFirestoreStatus('connected');
+        setIsLoading(false);
+        return;
       }
+      
+      const fetchedSubjects = await getAllAvailableSubjects();
+      setSubjects(fetchedSubjects);
+      setTotalSubjectsLoaded(fetchedSubjects.length);
+      setFirestoreStatus('connected');
     } catch (error: any) {
       console.error("Error loading subjects from Firestore:", error);
-      // Check if the error is due to misconfiguration (e.g., if getAllAvailableSubjects throws "FirebaseMisconfigured")
       if (error.message === "FirebaseMisconfigured") {
          setFirestoreStatus('misconfigured');
          toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
@@ -137,7 +145,7 @@ export function SystemSubjectManager() {
   };
 
   const handleDeleteSubject = async (subjectName: string) => {
-    setIsSubmitting(true);
+    setIsSubmitting(true); // Ensure this is set
     const success = await deleteSystemSubject(subjectName);
     if (success) {
       toast({ title: "Subject Deleted", description: `"${subjectName}" has been deleted from Firestore.` });
@@ -145,11 +153,13 @@ export function SystemSubjectManager() {
       toast({ title: "Error Deleting Subject", description: `Could not delete "${subjectName}". It might be in use or an error occurred.`, variant: "destructive" });
     }
     await loadSubjects(); 
-    setIsSubmitting(false);
+    setIsSubmitting(false); // Ensure this is reset
   };
 
   const FirestoreStatusIndicator = () => {
     switch (firestoreStatus) {
+      case 'initial':
+        return <Badge variant="outline" className="text-xs"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Initializing...</Badge>;
       case 'checking':
         return <Badge variant="outline" className="text-xs"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking Firestore...</Badge>;
       case 'connected':
@@ -162,6 +172,15 @@ export function SystemSubjectManager() {
         return <Badge variant="outline" className="text-xs"><HelpCircle className="h-3 w-3 mr-1" />Unknown Status</Badge>;
     }
   };
+
+  if (!componentReady) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Initializing component...</span>
+      </div>
+    );
+  }
 
 
   return (
@@ -179,12 +198,12 @@ export function SystemSubjectManager() {
       </CardHeader>
       <CardContent>
         <div className="mb-6 flex justify-end">
-          <Button onClick={handleOpenAddModal} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSubmitting || firestoreStatus === 'misconfigured' || firestoreStatus === 'error'}>
+          <Button onClick={handleOpenAddModal} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSubmitting || firestoreStatus === 'misconfigured' || firestoreStatus === 'error' || firestoreStatus === 'checking' || firestoreStatus === 'initial'}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Subject
           </Button>
         </div>
 
-        {isLoading && firestoreStatus === 'checking' ? (
+        {isLoading && (firestoreStatus === 'checking' || firestoreStatus === 'initial') ? (
           <div className="flex justify-center items-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <span className="ml-2">Loading subjects from Firestore...</span>
