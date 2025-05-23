@@ -2,35 +2,22 @@
 // src/lib/firebaseConfig.ts
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-// import { getAuth } from "firebase/auth"; // If you use Firebase Auth
+// If you decide to use Firebase Analytics, you can uncomment the next line
+// import { getAnalytics } from "firebase/analytics";
 
 // ##########################################################################
 // #                                                                        #
-// #                       🚨 IMPORTANT ATTENTION 🚨                        #
-// #                                                                        #
-// #  YOU MUST REPLACE THE PLACEHOLDER VALUES BELOW WITH YOUR ACTUAL        #
-// #  FIREBASE PROJECT CONFIGURATION CREDENTIALS.                           #
-// #                                                                        #
-// #  To get these:                                                         #
-// #  1. Go to your Firebase project in the Firebase Console.               #
-// #  2. Click on "Project settings" (the gear icon ⚙️).                    #
-// #  3. Under the "General" tab, scroll down to "Your apps".               #
-// #  4. If you haven't added a web app, click the "</>" (Web) icon to      #
-// #     add one and register your app.                                     #
-// #  5. Find the "SDK setup and configuration" section and select "Config".#
-// #  6. Copy the configuration object and paste its values below.          #
-// #                                                                        #
-// #  ⚠️ FAILURE TO DO THIS WILL PREVENT CONNECTION TO FIREBASE/FIRESTORE.  #
+// #         ✅ CREDENTIALS UPDATED WITH USER-PROVIDED VALUES ✅             #
 // #                                                                        #
 // ##########################################################################
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY_HERE", // <--- 🚨 REPLACE WITH YOUR ACTUAL API KEY 🚨
-  authDomain: "YOUR_AUTH_DOMAIN_HERE", // <--- 🚨 REPLACE 🚨
-  projectId: "YOUR_PROJECT_ID_HERE", // <--- 🚨 REPLACE 🚨
-  storageBucket: "YOUR_STORAGE_BUCKET_HERE", // <--- 🚨 REPLACE 🚨
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE", // <--- 🚨 REPLACE 🚨
-  appId: "YOUR_APP_ID_HERE", // <--- 🚨 REPLACE 🚨
-  measurementId: "YOUR_MEASUREMENT_ID_HERE" // Optional, <--- 🚨 REPLACE if you have it 🚨
+  apiKey: "AIzaSyDrgPRTglm10TpYUJKmYxMKz4HQdR-B_L0",
+  authDomain: "campusmarks-b3d56.firebaseapp.com",
+  projectId: "campusmarks-b3d56",
+  storageBucket: "campusmarks-b3d56.firebasestorage.app", // Note: your provided config had '.firebasestorage.app', corrected to '.appspot.com' if that was a typo, but using what you provided. Standard is usually .appspot.com
+  messagingSenderId: "942894194007",
+  appId: "1:942894194007:web:f1d2a43f2cb12343a0b212",
+  measurementId: "G-N8Z8TF07DW"
 };
 
 // Initialize Firebase
@@ -42,6 +29,7 @@ if (!getApps().length) {
 }
 
 const db = getFirestore(app);
-// const auth = getAuth(app); // If you use Firebase Auth
+// If you want to use Firebase Analytics, uncomment the next line:
+// const analytics = getAnalytics(app);
 
-export { app, db /*, auth */ };
+export { app, db /*, analytics */ };
