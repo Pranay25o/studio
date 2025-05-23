@@ -89,13 +89,20 @@ export default function RegisterPage() {
         setIsLoading(false);
         return;
     }
-    const success = await register(values.name, values.email, values.password, values.role as Role, values.prn);
+
+    // Normalize PRN to uppercase if role is student
+    const studentPrn = values.role === 'student' && values.prn 
+                       ? values.prn.trim().toUpperCase() 
+                       : values.prn;
+
+    const success = await register(values.name, values.email, values.password, values.role as Role, studentPrn);
     setIsLoading(false);
     if (success) {
       toast({ title: "Registration Successful", description: "Welcome to CampusMarks!" });
       if (values.role === "teacher") {
         router.push("/teacher/dashboard");
       } else if (values.role === "student") {
+        // For students, navigate to their dashboard which might redirect to marks page or PRN entry
         router.push("/student/dashboard");
       }
       // Admin redirect won't be hit from UI due to above check
@@ -256,3 +263,4 @@ export default function RegisterPage() {
     </>
   );
 }
+
