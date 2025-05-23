@@ -1,3 +1,4 @@
+
 import type { Student, User, Mark, Role } from '@/types';
 
 export const mockUsers: User[] = [
@@ -117,9 +118,25 @@ export const updateStudentName = async (prn: string, newName: string): Promise<S
 };
 
 export const getUserByEmail = async (email: string): Promise<User | undefined> => {
+  console.log('[getUserByEmail] Received email to search for:', email);
   await new Promise(resolve => setTimeout(resolve, 300));
-  // Make email comparison case-insensitive
-  return mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+  
+  const adminUserFromMock = mockUsers.find(u => u.email.toLowerCase() === 'admin@example.com');
+  if (adminUserFromMock) {
+    console.log('[getUserByEmail] Admin user in mockUsers:', JSON.stringify(adminUserFromMock));
+  } else {
+    console.log('[getUserByEmail] Admin user (admin@example.com) NOT found in mockUsers array.');
+  }
+  console.log('[getUserByEmail] Full mockUsers list being searched (first 5 users):', JSON.stringify(mockUsers.slice(0,5)));
+
+
+  const foundUser = mockUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (foundUser) {
+    console.log('[getUserByEmail] Found user:', JSON.stringify(foundUser));
+  } else {
+    console.log('[getUserByEmail] User NOT found for email (case-insensitive):', email);
+  }
+  return foundUser;
 }
 
 export const createUser = async (userData: Omit<User, 'id'> & { subjects?: string[] }): Promise<User> => {

@@ -1,3 +1,4 @@
+
 // src/contexts/AuthContext.tsx
 "use client";
 
@@ -39,26 +40,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (email: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
-    console.log('[AuthContext] Attempting login with:', { email, roleAttempt });
+    console.log('[AuthContext] LOGIN ATTEMPT: Email="', email, '", RoleAttempt="', roleAttempt, '" (Type:', typeof roleAttempt, ')');
+    
     const foundUser = await getUserByEmail(email);
-    console.log('[AuthContext] User found by email:', foundUser);
-
+    
     if (foundUser) {
-      console.log('[AuthContext] Comparing roles: foundUser.role="', foundUser.role, '", roleAttempt="', roleAttempt, '"');
+      console.log('[AuthContext] USER FOUND: ID="', foundUser.id, '", Name="', foundUser.name, '", Email="', foundUser.email, '", StoredRole="', foundUser.role, '" (Type:', typeof foundUser.role, ')');
+      
+      console.log('[AuthContext] COMPARING ROLES: StoredRole="', foundUser.role, '" vs RoleAttempt="', roleAttempt, '"');
       if (foundUser.role === roleAttempt) {
-        console.log('[AuthContext] Login successful for:', foundUser.name);
+        console.log('[AuthContext] LOGIN SUCCESSFUL for user:', foundUser.name);
         setUser(foundUser);
         sessionStorage.setItem('campusUser', JSON.stringify(foundUser));
         setIsLoading(false);
         return true;
       } else {
-        console.log('[AuthContext] Role mismatch.');
+        console.error('[AuthContext] ROLE MISMATCH: Stored role is "', foundUser.role, '" but attempted role was "', roleAttempt, '". Login failed.');
       }
     } else {
-      console.log('[AuthContext] User not found by email.');
+      console.error('[AuthContext] USER NOT FOUND for email: "', email, '". Login failed.');
     }
 
-    console.log('[AuthContext] Login failed.');
+    console.log('[AuthContext] Overall login outcome: FAILED.');
     setIsLoading(false);
     return false;
   };
