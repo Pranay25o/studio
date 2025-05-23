@@ -8,7 +8,7 @@ import * as z from 'zod';
 import {
   getAllUsers,
   getAllAvailableSubjects,
-  getSemesters,
+  getSemesters, // Now async, fetches from Firestore
   assignSubjectsToTeacherForSemester as apiAssignSubjectsToTeacherForSemester,
 } from '@/lib/mockData';
 import type { User, Semester } from '@/types';
@@ -20,7 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Loader2, BookUser, CalendarDays, Users, AlertCircle, Save } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Alert, AlertDescription, AlertTitle as UIAlertTitle } from '@/components/ui/alert'; // Renamed AlertTitle
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -36,7 +36,7 @@ export function TeacherSemesterAssignmentManager() {
   const { refreshAuthUser, user: loggedInUser } = useAuth();
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [systemSubjects, setSystemSubjects] = useState<string[]>([]);
-  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]); // Will be populated from Firestore
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   
@@ -64,13 +64,13 @@ export function TeacherSemesterAssignmentManager() {
       const [fetchedUsers, fetchedSysSubjects, fetchedSemesters] = await Promise.all([
         getAllUsers(),
         getAllAvailableSubjects(),
-        getSemesters(),
+        getSemesters(), // Now fetches from Firestore
       ]);
-      setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin')); // Admins can also be teachers
+      setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
       setSystemSubjects(fetchedSysSubjects);
       setSemesters(fetchedSemesters);
     } catch (error) {
-      toast({ title: "Error fetching data", description: "Could not load initial selection data.", variant: "destructive" });
+      toast({ title: "Error fetching data", description: "Could not load initial selection data. Check Firestore connection.", variant: "destructive" });
     }
     setIsLoading(false);
   }
@@ -78,7 +78,6 @@ export function TeacherSemesterAssignmentManager() {
   const teachers = useMemo(() => allUsers.filter(u => u.role === 'teacher' || u.role === 'admin'), [allUsers]);
 
   useEffect(() => {
-    // When selectedTeacherId or selectedSemester changes, update the form's assignedSubjects
     const teacher = allUsers.find(u => u.id === selectedTeacherId);
     if (teacher && selectedSemester && teacher.semesterAssignments) {
       const semesterAssignment = teacher.semesterAssignments.find(sa => sa.semester === selectedSemester);
@@ -95,11 +94,9 @@ export function TeacherSemesterAssignmentManager() {
       await apiAssignSubjectsToTeacherForSemester(data.teacherId, data.semester, data.assignedSubjects || []);
       toast({ title: "Assignments Updated", description: `Subject assignments for ${allUsers.find(u=>u.id === data.teacherId)?.name} in ${data.semester} have been saved.` });
       
-      // Refresh all user data to reflect changes
       const fetchedUsers = await getAllUsers();
       setAllUsers(fetchedUsers.filter(u => u.role === 'teacher' || u.role === 'admin'));
 
-      // If the logged-in user's assignments were changed, refresh their auth context
       if (loggedInUser?.id === data.teacherId) {
         await refreshAuthUser();
       }
@@ -168,12 +165,12 @@ export function TeacherSemesterAssignmentManager() {
                     disabled={!selectedTeacherId}
                   >
                     <SelectTrigger id="semester-select" disabled={!selectedTeacherId}>
-                      <SelectValue placeholder={selectedTeacherId ? "Choose a semester..." : "Select teacher first..."} />
+                      <SelectValue placeholder={selectedTeacherId ? (semesters.length > 0 ? "Choose a semester..." : "No semesters defined") : "Select teacher first..."} />
                     </SelectTrigger>
                     <SelectContent>
-                      {semesters.map(sem => (
+                      {semesters.length > 0 ? semesters.map(sem => (
                         <SelectItem key={sem} value={sem}>{sem}</SelectItem>
-                      ))}
+                      )) : <SelectItem value="" disabled>No semesters available. Add them via "Manage Semesters".</SelectItem>}
                     </SelectContent>
                   </Select>
                    {form.formState.errors.semester && <p className="text-sm text-destructive mt-1">{form.formState.errors.semester.message}</p>}
@@ -223,7 +220,7 @@ export function TeacherSemesterAssignmentManager() {
           {teachers.length === 0 && !isLoading && (
              <Alert variant="default" className="mt-4">
                 <Users className="h-4 w-4" />
-                <AlertTitle>No Teachers/Admins Found</AlertTitle>
+                <UIAlertTitle>No Teachers/Admins Found</UIAlertTitle>
                 <AlertDescription>
                     There are no teachers or administrators in the system to manage.
                 </AlertDescription>
@@ -232,9 +229,9 @@ export function TeacherSemesterAssignmentManager() {
           {semesters.length === 0 && !isLoading && (
              <Alert variant="default" className="mt-4">
                 <CalendarDays className="h-4 w-4" />
-                <AlertTitle>No Semesters Found</AlertTitle>
+                <UIAlertTitle>No Semesters Found</UIAlertTitle>
                 <AlertDescription>
-                    There are no semesters defined in the system.
+                    There are no semesters defined in Firestore. Please add them via "Manage Semesters" in the admin panel.
                 </AlertDescription>
             </Alert>
           )}
@@ -255,4 +252,3 @@ export function TeacherSemesterAssignmentManager() {
 // Helper to import FormField and FormItem if not directly available.
 // These are typically part of '@/components/ui/form'
 import { FormField, FormItem } from '@/components/ui/form';
-

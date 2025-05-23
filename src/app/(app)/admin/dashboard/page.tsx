@@ -1,7 +1,7 @@
 
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users2, BookLock, ArrowRight, Activity, BookOpen, CalendarClock } from 'lucide-react';
+import { Users2, BookLock, ArrowRight, Activity, BookOpen, CalendarClock, CalendarPlus } from 'lucide-react'; // Added CalendarPlus
 
 interface FeatureCardProps {
   title: string;
@@ -57,6 +57,12 @@ export default function AdminDashboardPage() {
           description="Add, rename, or delete subjects available in the entire system."
           href="/admin/manage-system-subjects"
           icon={<BookOpen className="h-8 w-8" />}
+        />
+        <FeatureCard
+          title="Manage Semesters"
+          description="Add, rename, or delete academic semesters in the system."
+          href="/admin/manage-semesters"
+          icon={<CalendarPlus className="h-8 w-8" />}
         />
         <FeatureCard
           title="Teacher Semester Assignments"

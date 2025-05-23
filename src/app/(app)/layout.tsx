@@ -39,7 +39,8 @@ import {
   Users2,
   BookLock,
   BookOpen,
-  CalendarClock
+  CalendarClock,
+  CalendarPlus // Added CalendarPlus
 } from 'lucide-react';
 import { usePathname } from 'next/navigation';
 
@@ -216,6 +217,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         >
           <Link href="/admin/manage-system-subjects">
             <BookOpen /> <span>System Subjects</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          asChild
+          isActive={pathname.startsWith("/admin/manage-semesters")}
+          tooltip="Manage Semesters"
+        >
+          <Link href="/admin/manage-semesters">
+            <CalendarPlus /> <span>Manage Semesters</span>
           </Link>
         </SidebarMenuButton>
       </SidebarMenuItem>

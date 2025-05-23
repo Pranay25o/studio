@@ -15,16 +15,8 @@ import {
   writeBatch
 } from "firebase/firestore";
 
-export let mockSemesters: Semester[] = [
-  "Fall 2023",
-  "Spring 2024",
-  "Summer 2024",
-  "Fall 2024",
-  "Spring 2025",
-  "Summer 2025",
-  "Fall 2025",
-  "Spring 2026",
-].sort();
+// Semesters are now managed in Firestore
+// export let mockSemesters: Semester[] = [ ... ]; // Removed
 
 export let mockUsers: User[] = [
   { 
@@ -93,7 +85,7 @@ export let mockStudents: Student[] = [
   },
 ];
 
-// --- System Subject Management Functions (Now using Firestore) ---
+// --- System Subject Management Functions (Using Firestore) ---
 const systemSubjectsCollection = collection(db, "systemSubjects");
 
 export const getAllAvailableSubjects = async (): Promise<string[]> => {
@@ -103,15 +95,14 @@ export const getAllAvailableSubjects = async (): Promise<string[]> => {
     return querySnapshot.docs.map(doc => doc.data().name as string);
   } catch (error) {
     console.error("Error fetching system subjects from Firestore:", error);
-    // Check if it's a known placeholder error
-    if (error instanceof Error && (error.message.includes("Could not reach Cloud Firestore backend") || error.message.includes("Failed to get document because the client is offline."))) {
+    if (error instanceof Error && (error.message.includes("Could not reach Cloud Firestore backend") || error.message.includes("Failed to get document because the client is offline.") || error.message.includes("firestore/unavailable"))) {
         const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || {};
          if (currentConfig.apiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
-            console.warn("Firestore connection failed: Firebase config seems to be using placeholder values.");
+            console.warn("Firestore connection failed for subjects: Firebase config seems to be using placeholder values.");
             throw new Error("FirebaseMisconfigured");
         }
     }
-    return []; // Return empty array on other errors
+    return []; 
   }
 };
 
@@ -120,12 +111,11 @@ export const addSystemSubject = async (subjectName: string): Promise<boolean> =>
   if (!trimmedName) return false;
 
   try {
-    // Check if subject already exists (case-insensitive for robustness, though Firestore queries are case-sensitive by default)
     const qCheck = query(systemSubjectsCollection, where("nameLower", "==", trimmedName.toLowerCase()));
     const checkSnapshot = await getDocs(qCheck);
     if (!checkSnapshot.empty) {
-      console.warn(`Subject "${trimmedName}" already exists.`);
-      return false; // Subject already exists
+      console.warn(`Subject "${trimmedName}" already exists in Firestore.`);
+      return false; 
     }
     
     await addDoc(systemSubjectsCollection, { name: trimmedName, nameLower: trimmedName.toLowerCase() });
@@ -143,19 +133,13 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
   if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false;
 
   try {
-    // Check if new name already exists
     const newNameCheckQuery = query(systemSubjectsCollection, where("nameLower", "==", trimmedNewName.toLowerCase()));
     const newNameCheckSnapshot = await getDocs(newNameCheckQuery);
     if (!newNameCheckSnapshot.empty) {
-        // Check if the found document is actually the one we are trying to rename
         let isSelf = false;
-        newNameCheckSnapshot.forEach(doc => {
-            if (doc.data().name.toLowerCase() === trimmedOldName.toLowerCase()) {
-                isSelf = true;
-            }
-        });
+        newNameCheckSnapshot.forEach(doc => { if (doc.data().nameLower === trimmedOldName.toLowerCase()) isSelf = true; });
         if (!isSelf) {
-            console.warn(`New subject name "${trimmedNewName}" already exists.`);
+            console.warn(`New subject name "${trimmedNewName}" already exists in Firestore.`);
             return false;
         }
     }
@@ -164,8 +148,8 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
     const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) {
-      console.warn(`Subject "${trimmedOldName}" not found for renaming.`);
-      return false; // Old name doesn't exist
+      console.warn(`Subject "${trimmedOldName}" not found for renaming in Firestore.`);
+      return false; 
     }
 
     const batch = writeBatch(db);
@@ -175,7 +159,6 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
     await batch.commit();
 
     // Propagate renames to mockUsers and mockMarks (local mock data)
-    // In a full Firestore setup, this would involve updating relevant documents in 'users' and 'marks' collections.
     mockUsers.forEach(user => {
       if (user.subjects) {
         user.subjects = user.subjects.map(s => s.toLowerCase() === trimmedOldName.toLowerCase() ? trimmedNewName : s).sort();
@@ -215,7 +198,7 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     const querySnapshot = await getDocs(q);
 
     if (querySnapshot.empty) {
-      console.warn(`Subject "${trimmedName}" not found for deletion.`);
+      console.warn(`Subject "${trimmedName}" not found for deletion in Firestore.`);
       return false;
     }
 
@@ -225,8 +208,6 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     });
     await batch.commit();
     
-    // Propagate deletes to mockUsers and mockMarks (local mock data)
-    // In a full Firestore setup, this would involve a more robust strategy.
     const replacementSubjectName = `Archived Subject (${trimmedName})`;
     mockUsers.forEach(user => {
       if (user.subjects) {
@@ -253,6 +234,123 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     return true;
   } catch (error) {
     console.error("Error deleting system subject from Firestore:", error);
+    return false;
+  }
+};
+
+// --- Semester Management Functions (Using Firestore) ---
+const semestersCollection = collection(db, "semesters");
+
+export const getSemesters = async (): Promise<Semester[]> => {
+  try {
+    const q = query(semestersCollection, orderBy("name"));
+    const querySnapshot = await getDocs(q);
+    return querySnapshot.docs.map(doc => doc.data().name as string);
+  } catch (error) {
+    console.error("Error fetching semesters from Firestore:", error);
+     if (error instanceof Error && (error.message.includes("Could not reach Cloud Firestore backend") || error.message.includes("Failed to get document because the client is offline.") || error.message.includes("firestore/unavailable"))) {
+        const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || {};
+         if (currentConfig.apiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
+            console.warn("Firestore connection failed for semesters: Firebase config seems to be using placeholder values.");
+            throw new Error("FirebaseMisconfigured");
+        }
+    }
+    return [];
+  }
+};
+
+export const addSemester = async (semesterName: string): Promise<boolean> => {
+  const trimmedName = semesterName.trim();
+  if (!trimmedName) return false;
+  try {
+    const qCheck = query(semestersCollection, where("nameLower", "==", trimmedName.toLowerCase()));
+    const checkSnapshot = await getDocs(qCheck);
+    if (!checkSnapshot.empty) {
+      console.warn(`Semester "${trimmedName}" already exists in Firestore.`);
+      return false;
+    }
+    await addDoc(semestersCollection, { name: trimmedName, nameLower: trimmedName.toLowerCase() });
+    return true;
+  } catch (error) {
+    console.error("Error adding semester to Firestore:", error);
+    return false;
+  }
+};
+
+export const renameSemester = async (oldName: string, newName: string): Promise<boolean> => {
+  const trimmedOldName = oldName.trim();
+  const trimmedNewName = newName.trim();
+  if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false;
+
+  try {
+    const newNameCheckQuery = query(semestersCollection, where("nameLower", "==", trimmedNewName.toLowerCase()));
+    const newNameCheckSnapshot = await getDocs(newNameCheckQuery);
+    if (!newNameCheckSnapshot.empty) {
+        let isSelf = false;
+        newNameCheckSnapshot.forEach(doc => { if (doc.data().nameLower === trimmedOldName.toLowerCase()) isSelf = true; });
+        if (!isSelf) {
+            console.warn(`New semester name "${trimmedNewName}" already exists in Firestore.`);
+            return false;
+        }
+    }
+
+    const q = query(semestersCollection, where("nameLower", "==", trimmedOldName.toLowerCase()));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+      console.warn(`Semester "${trimmedOldName}" not found for renaming in Firestore.`);
+      return false;
+    }
+
+    const batch = writeBatch(db);
+    querySnapshot.forEach(docSnapshot => {
+      batch.update(doc(db, "semesters", docSnapshot.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
+    });
+    await batch.commit();
+
+    // Update mockUsers for now
+    mockUsers.forEach(user => {
+      if (user.semesterAssignments) {
+        user.semesterAssignments.forEach(assignment => {
+          if (assignment.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
+            assignment.semester = trimmedNewName;
+          }
+        });
+      }
+    });
+    return true;
+  } catch (error) {
+    console.error("Error renaming semester in Firestore:", error);
+    return false;
+  }
+};
+
+export const deleteSemester = async (semesterName: string): Promise<boolean> => {
+  const trimmedName = semesterName.trim();
+  if (!trimmedName) return false;
+  try {
+    const q = query(semestersCollection, where("nameLower", "==", trimmedName.toLowerCase()));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+      console.warn(`Semester "${trimmedName}" not found for deletion in Firestore.`);
+      return false;
+    }
+    const batch = writeBatch(db);
+    querySnapshot.forEach(docSnapshot => {
+      batch.delete(doc(db, "semesters", docSnapshot.id));
+    });
+    await batch.commit();
+
+    // Update mockUsers for now
+    mockUsers.forEach(user => {
+      if (user.semesterAssignments) {
+        user.semesterAssignments = user.semesterAssignments.filter(
+          assignment => assignment.semester.toLowerCase() !== trimmedName.toLowerCase()
+        );
+      }
+    });
+    return true;
+  } catch (error) {
+    console.error("Error deleting semester from Firestore:", error);
     return false;
   }
 };
@@ -348,8 +446,8 @@ export const updateStudentName = async (prn: string, newName: string): Promise<S
   return undefined;
 };
 
-export const getUserByEmail = async (email: string): Promise<User | undefined> => {
-  const trimmedEmail = email.trim().toLowerCase();
+export const getUserByEmail = async (emailInput: string): Promise<User | undefined> => {
+  const trimmedEmail = emailInput.trim().toLowerCase();
   console.log('[getUserByEmail] Received email to search for (trimmed, lowercased):', trimmedEmail);
   await new Promise(resolve => setTimeout(resolve, 50)); 
   
@@ -383,8 +481,6 @@ export const createUser = async (userData: Omit<User, 'id'> & { subjects?: strin
     if (existingStudentIndex === -1) {
        mockStudents.push({id: newUser.prn, name: newUser.name, email: newUser.email, marks: [] });
     } else {
-      // If student with this PRN already exists in mockStudents, update their name/email if different
-      // This could happen if a user registers with an existing PRN
       mockStudents[existingStudentIndex].name = newUser.name; 
       mockStudents[existingStudentIndex].email = newUser.email;
     }
@@ -402,12 +498,6 @@ export const assignSubjectsToTeacher = async (userId: string, subjects: string[]
   return undefined;
 };
 
-
-export const getSemesters = async (): Promise<Semester[]> => {
-  await new Promise(resolve => setTimeout(resolve, 100));
-  return [...mockSemesters];
-};
-
 export const assignSubjectsToTeacherForSemester = async (userId: string, semester: Semester, subjects: string[]): Promise<User | undefined> => {
   await new Promise(resolve => setTimeout(resolve, 100));
   const userIndex = mockUsers.findIndex(u => u.id === userId && (u.role === 'teacher' || u.role === 'admin'));
@@ -423,14 +513,11 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
 
   if (existingSemesterAssignmentIndex !== -1) {
     if (sortedSubjects.length === 0) { 
-      // If no subjects are provided for an existing assignment, remove the assignment
       user.semesterAssignments.splice(existingSemesterAssignmentIndex, 1);
     } else {
-      // Update existing assignment
       user.semesterAssignments[existingSemesterAssignmentIndex].subjects = sortedSubjects;
     }
   } else if (sortedSubjects.length > 0) { 
-    // Add new assignment only if there are subjects to assign
     user.semesterAssignments.push({ semester, subjects: sortedSubjects });
     user.semesterAssignments.sort((a, b) => a.semester.localeCompare(b.semester)); 
   }
