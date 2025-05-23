@@ -15,8 +15,19 @@ import {
   writeBatch
 } from "firebase/firestore";
 
-// Semesters are now managed in Firestore
-// export let mockSemesters: Semester[] = [ ... ]; // Removed
+// ##########################################################################
+// #                                                                        #
+// #                       🚨 IMPORTANT ATTENTION 🚨                        #
+// #                                                                        #
+// #  THIS FILE USES A MIX OF MOCK DATA (for users, students, marks)        #
+// #  AND FIRESTORE (for systemSubjects, semesters).                        #
+// #  AS YOU MIGRATE FEATURES, FUNCTIONS HERE WILL BE UPDATED TO            #
+// #  INTERACT FULLY WITH FIRESTORE.                                        #
+// #                                                                        #
+// #  Ensure `src/lib/firebaseConfig.ts` has your correct credentials.      #
+// #                                                                        #
+// ##########################################################################
+
 
 export let mockUsers: User[] = [
   { 
@@ -96,7 +107,7 @@ export const getAllAvailableSubjects = async (): Promise<string[]> => {
   } catch (error) {
     console.error("Error fetching system subjects from Firestore:", error);
     if (error instanceof Error && (error.message.includes("Could not reach Cloud Firestore backend") || error.message.includes("Failed to get document because the client is offline.") || error.message.includes("firestore/unavailable"))) {
-        const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || {};
+        const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || (db.app.options);
          if (currentConfig.apiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
             console.warn("Firestore connection failed for subjects: Firebase config seems to be using placeholder values.");
             throw new Error("FirebaseMisconfigured");
@@ -159,6 +170,8 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
     await batch.commit();
 
     // Propagate renames to mockUsers and mockMarks (local mock data)
+    // TODO: In a full Firestore app, this would involve updating other collections
+    // or using Cloud Functions for atomicity.
     mockUsers.forEach(user => {
       if (user.subjects) {
         user.subjects = user.subjects.map(s => s.toLowerCase() === trimmedOldName.toLowerCase() ? trimmedNewName : s).sort();
@@ -206,34 +219,42 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     querySnapshot.forEach(docSnapshot => {
       batch.delete(doc(db, "systemSubjects", docSnapshot.id));
     });
-    await batch.commit();
+    await batch.commit(); // Firestore deletion attempt
     
-    const replacementSubjectName = `Archived Subject (${trimmedName})`;
-    mockUsers.forEach(user => {
-      if (user.subjects) {
-        user.subjects = user.subjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase()).sort();
-      }
-      if (user.semesterAssignments) {
-        user.semesterAssignments.forEach(assignment => {
-          assignment.subjects = assignment.subjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase()).sort();
+    // Attempt to update local mock data.
+    // This part is secondary to the Firestore operation for the SystemSubjectManager.
+    try {
+        const replacementSubjectName = `Archived Subject (${trimmedName})`;
+        mockUsers.forEach(user => {
+          if (user.subjects) {
+            user.subjects = user.subjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase()).sort();
+          }
+          if (user.semesterAssignments) {
+            user.semesterAssignments.forEach(assignment => {
+              assignment.subjects = assignment.subjects.filter(s => s.toLowerCase() !== trimmedName.toLowerCase()).sort();
+            });
+          }
         });
-      }
-    });
-    mockMarks.forEach(mark => {
-      if (mark.subject.toLowerCase() === trimmedName.toLowerCase()) {
-        mark.subject = replacementSubjectName; 
-      }
-    });
-    mockStudents.forEach(student => {
-      student.marks.forEach(mark => {
-        if (mark.subject.toLowerCase() === trimmedName.toLowerCase()) {
-          mark.subject = replacementSubjectName;
-        }
-      });
-    });
-    return true;
-  } catch (error) {
-    console.error("Error deleting system subject from Firestore:", error);
+        mockMarks.forEach(mark => {
+          if (mark.subject.toLowerCase() === trimmedName.toLowerCase()) {
+            mark.subject = replacementSubjectName; 
+          }
+        });
+        mockStudents.forEach(student => {
+          student.marks.forEach(mark => {
+            if (mark.subject.toLowerCase() === trimmedName.toLowerCase()) {
+              mark.subject = replacementSubjectName;
+            }
+          });
+        });
+    } catch (localError) {
+        console.warn("Error updating local mock data after Firestore subject deletion:", localError);
+        // Even if local mock data update fails, the Firestore operation might have succeeded.
+        // The SystemSubjectManager primarily cares about the Firestore state for its list.
+    }
+    return true; // Report success based on Firestore operation attempt
+  } catch (firestoreError) {
+    console.error("Error deleting system subject from Firestore:", firestoreError);
     return false;
   }
 };
@@ -249,7 +270,7 @@ export const getSemesters = async (): Promise<Semester[]> => {
   } catch (error) {
     console.error("Error fetching semesters from Firestore:", error);
      if (error instanceof Error && (error.message.includes("Could not reach Cloud Firestore backend") || error.message.includes("Failed to get document because the client is offline.") || error.message.includes("firestore/unavailable"))) {
-        const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || {};
+        const currentConfig = (typeof window !== "undefined" && (window as any).firebase?.app?.options) || (db.app.options);
          if (currentConfig.apiKey === "YOUR_API_KEY_HERE" || process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE") {
             console.warn("Firestore connection failed for semesters: Firebase config seems to be using placeholder values.");
             throw new Error("FirebaseMisconfigured");
@@ -308,15 +329,20 @@ export const renameSemester = async (oldName: string, newName: string): Promise<
     await batch.commit();
 
     // Update mockUsers for now
-    mockUsers.forEach(user => {
-      if (user.semesterAssignments) {
-        user.semesterAssignments.forEach(assignment => {
-          if (assignment.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
-            assignment.semester = trimmedNewName;
+    // TODO: In a full Firestore app, this would involve updating user documents.
+    try {
+        mockUsers.forEach(user => {
+          if (user.semesterAssignments) {
+            user.semesterAssignments.forEach(assignment => {
+              if (assignment.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
+                assignment.semester = trimmedNewName;
+              }
+            });
           }
         });
-      }
-    });
+    } catch (localError) {
+        console.warn("Error updating local mock data after Firestore semester rename:", localError);
+    }
     return true;
   } catch (error) {
     console.error("Error renaming semester in Firestore:", error);
@@ -341,13 +367,18 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
     await batch.commit();
 
     // Update mockUsers for now
-    mockUsers.forEach(user => {
-      if (user.semesterAssignments) {
-        user.semesterAssignments = user.semesterAssignments.filter(
-          assignment => assignment.semester.toLowerCase() !== trimmedName.toLowerCase()
-        );
-      }
-    });
+    // TODO: In a full Firestore app, this would involve updating user documents.
+    try {
+        mockUsers.forEach(user => {
+          if (user.semesterAssignments) {
+            user.semesterAssignments = user.semesterAssignments.filter(
+              assignment => assignment.semester.toLowerCase() !== trimmedName.toLowerCase()
+            );
+          }
+        });
+    } catch (localError) {
+        console.warn("Error updating local mock data after Firestore semester deletion:", localError);
+    }
     return true;
   } catch (error) {
     console.error("Error deleting semester from Firestore:", error);
@@ -356,7 +387,7 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
 };
 
 
-// --- Existing Mock Functions (to be migrated later) ---
+// --- Existing Mock Functions (for users, students, marks - to be migrated later) ---
 
 export const getStudentByPrn = async (prn: string): Promise<Student | undefined> => {
   await new Promise(resolve => setTimeout(resolve, 100)); // Simulate network delay
@@ -513,11 +544,13 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
 
   if (existingSemesterAssignmentIndex !== -1) {
     if (sortedSubjects.length === 0) { 
+      // If no subjects are provided for an existing assignment, remove the assignment
       user.semesterAssignments.splice(existingSemesterAssignmentIndex, 1);
     } else {
       user.semesterAssignments[existingSemesterAssignmentIndex].subjects = sortedSubjects;
     }
   } else if (sortedSubjects.length > 0) { 
+    // Only add a new assignment if there are subjects to assign
     user.semesterAssignments.push({ semester, subjects: sortedSubjects });
     user.semesterAssignments.sort((a, b) => a.semester.localeCompare(b.semester)); 
   }
