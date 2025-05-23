@@ -30,11 +30,11 @@ const renameSchema = z.object({
 type RenameFormData = z.infer<typeof renameSchema>;
 
 export function StudentManagement() {
-  const [students, setStudents] = useState<Student[]>([]);
+  const [students, setStudents] = useState<Omit<Student, 'marks'>[]>([]); // Now students without marks
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
-  const [editingStudent, setEditingStudent] = useState<Student | null>(null);
+  const [editingStudent, setEditingStudent] = useState<Omit<Student, 'marks'> | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
 
@@ -49,7 +49,7 @@ export function StudentManagement() {
   async function fetchStudents() {
     setIsLoading(true);
     try {
-      const fetchedStudents = await getAllStudents();
+      const fetchedStudents = await getAllStudents(); // Fetches only student profiles
       setStudents(fetchedStudents);
     } catch (error) {
       toast({ title: "Error fetching students", description: "Could not load student data.", variant: "destructive" });
@@ -57,14 +57,14 @@ export function StudentManagement() {
     setIsLoading(false);
   }
 
-  const handleRenameStudent = (student: Student) => {
+  const handleRenameStudent = (student: Omit<Student, 'marks'>) => {
     setEditingStudent(student);
     setValue('newName', student.name);
     setIsRenameDialogOpen(true);
   };
 
   const onRenameSubmit = async (data: RenameFormData) => {
-    if (!editingStudent) return;
+    if (!editingStudent || !editingStudent.id) return; // editingStudent.id is PRN
     setIsSubmitting(true);
     try {
       await apiUpdateStudentName(editingStudent.id, data.newName);
@@ -81,7 +81,7 @@ export function StudentManagement() {
     if (!searchTerm) return students;
     return students.filter(student =>
       student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      student.id.toLowerCase().includes(searchTerm.toLowerCase())
+      (student.id && student.id.toLowerCase().includes(searchTerm.toLowerCase())) // student.id is PRN
     );
   }, [students, searchTerm]);
 

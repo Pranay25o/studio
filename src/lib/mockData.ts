@@ -82,6 +82,7 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
   if (!trimmedOldName || !trimmedNewName || trimmedOldName.toLowerCase() === trimmedNewName.toLowerCase()) return false;
 
   try {
+    // Check if new name already exists (and is not the item being renamed)
     const newNameCheckQuery = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedNewName.toLowerCase()));
     const newNameCheckSnapshot = await getDocs(newNameCheckQuery);
     if (!newNameCheckSnapshot.empty && newNameCheckSnapshot.docs.some(d => d.data().nameLower !== trimmedOldName.toLowerCase())) {
@@ -101,29 +102,36 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
       batch.update(doc(db, "systemSubjects", docSnapshot.id), { name: trimmedNewName, nameLower: trimmedNewName.toLowerCase() });
     });
     
-    // Also update in users' general subjects and semester assignments, and in marks
-    // This part becomes more complex with Firestore. We'll need to query and update.
+    // Update in users' general subjects and semester assignments
     const usersSnapshot = await getDocs(usersCollectionRef);
     usersSnapshot.forEach(userDoc => {
       const userData = userDoc.data() as User;
       let userModified = false;
+      const updatedUserFields: Partial<User> = {};
+
       if (userData.subjects && userData.subjects.includes(trimmedOldName)) {
-        userData.subjects = userData.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort();
+        updatedUserFields.subjects = userData.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort();
         userModified = true;
       }
       if (userData.semesterAssignments) {
-        userData.semesterAssignments.forEach(sa => {
+        const newSemesterAssignments = userData.semesterAssignments.map(sa => {
           if (sa.subjects.includes(trimmedOldName)) {
-            sa.subjects = sa.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort();
-            userModified = true;
+            return { ...sa, subjects: sa.subjects.map(s => s === trimmedOldName ? trimmedNewName : s).sort() };
           }
+          return sa;
         });
+        // Check if actual change happened to avoid unnecessary writes
+        if (JSON.stringify(newSemesterAssignments) !== JSON.stringify(userData.semesterAssignments)) {
+            updatedUserFields.semesterAssignments = newSemesterAssignments;
+            userModified = true;
+        }
       }
       if (userModified) {
-        batch.update(doc(db, "users", userDoc.id), { subjects: userData.subjects, semesterAssignments: userData.semesterAssignments });
+        batch.update(doc(db, "users", userDoc.id), updatedUserFields);
       }
     });
 
+    // Update marks
     const marksQuery = query(marksCollectionRef, where("subject", "==", trimmedOldName));
     const marksSnapshot = await getDocs(marksQuery);
     marksSnapshot.forEach(markDoc => {
@@ -141,6 +149,7 @@ export const renameSystemSubject = async (oldName: string, newName: string): Pro
 export const deleteSystemSubject = async (subjectName: string): Promise<boolean> => {
   const trimmedName = subjectName.trim();
   if (!trimmedName) return false;
+  let firestoreDeletionSuccess = false;
   try {
     const q = query(systemSubjectsCollectionRef, where("nameLower", "==", trimmedName.toLowerCase()));
     const querySnapshot = await getDocs(q);
@@ -153,28 +162,33 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     querySnapshot.forEach(docSnapshot => {
       batch.delete(doc(db, "systemSubjects", docSnapshot.id));
     });
-
-    // Also update in users' general subjects and semester assignments, and in marks (e.g., remove or nullify)
+    
+    // Update users' general subjects and semester assignments
     const usersSnapshot = await getDocs(usersCollectionRef);
     usersSnapshot.forEach(userDoc => {
       const userData = userDoc.data() as User;
       let userModified = false;
+      const updatedUserFields: Partial<User> = {};
+
       if (userData.subjects && userData.subjects.includes(trimmedName)) {
-        userData.subjects = userData.subjects.filter(s => s !== trimmedName).sort();
+        updatedUserFields.subjects = userData.subjects.filter(s => s !== trimmedName).sort();
         userModified = true;
       }
       if (userData.semesterAssignments) {
-        userData.semesterAssignments.forEach(sa => {
+        const newSemesterAssignments = userData.semesterAssignments.map(sa => {
           if (sa.subjects.includes(trimmedName)) {
-            sa.subjects = sa.subjects.filter(s => s !== trimmedName).sort();
-            userModified = true;
+            return { ...sa, subjects: sa.subjects.filter(s => s !== trimmedName).sort() };
           }
-        });
-        // Remove semester assignments if they become empty
-        userData.semesterAssignments = userData.semesterAssignments.filter(sa => sa.subjects.length > 0);
+          return sa;
+        }).filter(sa => sa.subjects.length > 0); // Remove assignment if no subjects left
+
+         if (JSON.stringify(newSemesterAssignments) !== JSON.stringify(userData.semesterAssignments)) {
+            updatedUserFields.semesterAssignments = newSemesterAssignments;
+            userModified = true;
+        }
       }
       if (userModified) {
-        batch.update(doc(db, "users", userDoc.id), { subjects: userData.subjects, semesterAssignments: userData.semesterAssignments });
+        batch.update(doc(db, "users", userDoc.id), updatedUserFields);
       }
     });
     
@@ -185,12 +199,13 @@ export const deleteSystemSubject = async (subjectName: string): Promise<boolean>
     marksSnapshot.forEach(markDoc => {
       batch.delete(doc(db, "marks", markDoc.id));
     });
-    
+
     await batch.commit();
-    return true;
+    firestoreDeletionSuccess = true;
+    return true; // Firestore operation succeeded
   } catch (error) {
     console.error("Error deleting system subject from Firestore and related data:", error);
-    return false;
+    return false; // Firestore operation failed
   }
 };
 
@@ -261,19 +276,20 @@ export const renameSemester = async (oldName: string, newName: string): Promise<
       const userData = userDoc.data() as User;
       if (userData.semesterAssignments) {
         let modified = false;
-        userData.semesterAssignments.forEach(sa => {
+        const updatedAssignments = userData.semesterAssignments.map(sa => {
           if (sa.semester.toLowerCase() === trimmedOldName.toLowerCase()) {
-            sa.semester = trimmedNewName;
             modified = true;
+            return { ...sa, semester: trimmedNewName };
           }
+          return sa;
         });
         if (modified) {
-          batch.update(doc(db, "users", userDoc.id), { semesterAssignments: userData.semesterAssignments });
+          batch.update(doc(db, "users", userDoc.id), { semesterAssignments: updatedAssignments.sort((a,b) => a.semester.localeCompare(b.semester)) });
         }
       }
     });
 
-    const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedOldName)); // Assuming exact match for old semester name
+    const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedOldName));
     const marksSnapshot = await getDocs(marksQuery);
     marksSnapshot.forEach(markDoc => {
       batch.update(doc(db, "marks", markDoc.id), { semester: trimmedNewName });
@@ -315,7 +331,7 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
       }
     });
 
-    const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedName)); // Assuming exact match
+    const marksQuery = query(marksCollectionRef, where("semester", "==", trimmedName)); 
     const marksSnapshot = await getDocs(marksQuery);
     marksSnapshot.forEach(markDoc => {
       batch.delete(doc(db, "marks", markDoc.id));
@@ -332,17 +348,17 @@ export const deleteSemester = async (semesterName: string): Promise<boolean> => 
 // --- User Management Functions (Firestore-backed) ---
 export const getUserByEmail = async (emailInput: string): Promise<User | undefined> => {
   const trimmedEmail = emailInput.trim().toLowerCase();
-  console.log('[getUserByEmail] Received email to search for (trimmed, lowercased):', trimmedEmail);
+  // console.log('[getUserByEmail] Received email to search for (trimmed, lowercased):', trimmedEmail);
   try {
     const q = query(usersCollectionRef, where("email", "==", trimmedEmail));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
       const userDoc = querySnapshot.docs[0];
       const userData = userDoc.data() as Omit<User, 'id'>;
-      console.log('[getUserByEmail] Found user (from Firestore):', JSON.stringify({ id: userDoc.id, ...userData }));
+      // console.log('[getUserByEmail] Found user (from Firestore):', JSON.stringify({ id: userDoc.id, ...userData }));
       return { id: userDoc.id, ...userData };
     }
-    console.log('[getUserByEmail] User NOT found for email (from Firestore):', trimmedEmail);
+    // console.log('[getUserByEmail] User NOT found for email (from Firestore):', trimmedEmail);
     return undefined;
   } catch (error) {
     console.error("Error fetching user by email from Firestore:", error);
@@ -361,12 +377,10 @@ export const createUser = async (userData: Omit<User, 'id' | 'subjects' | 'semes
       semesterAssignments: userData.semesterAssignments || [],
     };
 
-    // For students, if PRN is not provided, generate one (this might need a more robust unique generation in a real app)
     if (userToCreate.role === 'student' && !userToCreate.prn) {
-      userToCreate.prn = `PRN${Date.now().toString().slice(-6)}`; // Simple PRN generation
+        throw new Error("PRN is required for student registration.");
     }
     
-    // Check if student PRN already exists if role is student
     if (userToCreate.role === 'student' && userToCreate.prn) {
         const prnCheckQuery = query(usersCollectionRef, where("prn", "==", userToCreate.prn), where("role", "==", "student"));
         const prnCheckSnapshot = await getDocs(prnCheckQuery);
@@ -375,12 +389,11 @@ export const createUser = async (userData: Omit<User, 'id' | 'subjects' | 'semes
         }
     }
 
-
     const docRef = await addDoc(usersCollectionRef, userToCreate);
     return { id: docRef.id, ...userToCreate };
   } catch (error) {
     console.error("Error creating user in Firestore:", error);
-    throw error; // Re-throw to be caught by AuthContext
+    throw error; 
   }
 };
 
@@ -396,7 +409,7 @@ export const getAllUsers = async (): Promise<User[]> => {
 
 export const getAllTeachers = async (): Promise<User[]> => {
   try {
-    const q = query(usersCollectionRef, where("role", "in", ["teacher", "admin"])); // Admins can also be teachers
+    const q = query(usersCollectionRef, where("role", "in", ["teacher", "admin"]));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
   } catch (error) {
@@ -413,8 +426,8 @@ export const assignSubjectsToTeacher = async (userId: string, subjects: string[]
       console.warn(`User ${userId} not found or not a teacher/admin.`);
       return undefined;
     }
-    await updateDoc(userDocRef, { subjects: [...subjects].sort() });
-    const updatedUserDoc = await getDoc(userDocRef); // Re-fetch to get updated data
+    await updateDoc(userDocRef, { subjects: [...new Set(subjects)].sort() }); // Ensure unique and sorted
+    const updatedUserDoc = await getDoc(userDocRef);
     return { id: updatedUserDoc.id, ...updatedUserDoc.data() } as User;
   } catch (error) {
     console.error("Error assigning subjects to teacher in Firestore:", error);
@@ -433,9 +446,9 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
       }
 
       const userData = userDocSnap.data() as User;
-      let semesterAssignments = userData.semesterAssignments || [];
+      let semesterAssignments = userData.semesterAssignments ? [...userData.semesterAssignments] : [];
       const existingAssignmentIndex = semesterAssignments.findIndex(sa => sa.semester === semester);
-      const sortedSubjects = [...subjects].sort();
+      const sortedSubjects = [...new Set(subjects)].sort(); // Ensure unique and sorted
 
       if (existingAssignmentIndex !== -1) {
         if (sortedSubjects.length === 0) {
@@ -445,12 +458,12 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
         }
       } else if (sortedSubjects.length > 0) {
         semesterAssignments.push({ semester, subjects: sortedSubjects });
-        semesterAssignments.sort((a,b) => a.semester.localeCompare(b.semester));
       }
+      semesterAssignments.sort((a,b) => a.semester.localeCompare(b.semester)); // Keep sorted
       transaction.update(userDocRef, { semesterAssignments });
     });
 
-    const updatedUserDoc = await getDoc(userDocRef); // Re-fetch to get updated data
+    const updatedUserDoc = await getDoc(userDocRef);
     return { id: updatedUserDoc.id, ...updatedUserDoc.data() } as User;
 
   } catch (error) {
@@ -461,36 +474,45 @@ export const assignSubjectsToTeacherForSemester = async (userId: string, semeste
 
 
 // --- Student and Mark Management Functions (Firestore-backed) ---
-export const getAllStudents = async (): Promise<Student[]> => {
+export const getAllStudents = async (): Promise<Omit<Student, 'marks'>[]> => {
   try {
     const studentUsersQuery = query(usersCollectionRef, where("role", "==", "student"));
     const studentUsersSnapshot = await getDocs(studentUsersQuery);
     
-    const students: Student[] = [];
-    for (const userDoc of studentUsersSnapshot.docs) {
+    const students: Omit<Student, 'marks'>[] = studentUsersSnapshot.docs.map(userDoc => {
       const userData = userDoc.data() as User;
-      if (!userData.prn) continue; // Should not happen if PRN is mandatory for students
-
-      const marksQuery = query(marksCollectionRef, where("studentId", "==", userData.prn));
-      const marksSnapshot = await getDocs(marksQuery);
-      const studentMarks: Mark[] = marksSnapshot.docs.map(markDoc => ({
-        id: markDoc.id,
-        ...markDoc.data()
-      } as Mark));
-      
-      students.push({
-        id: userData.prn, // Student ID is PRN
+      return {
+        id: userData.prn!, // Student ID is PRN
         name: userData.name,
         email: userData.email,
-        marks: studentMarks,
-      });
-    }
-    return students;
+      };
+    });
+    return students.sort((a,b) => a.name.localeCompare(b.name));
   } catch (error) {
-    console.error("Error fetching all students from Firestore:", error);
+    console.error("Error fetching all student profiles from Firestore:", error);
     return [];
   }
 };
+
+// Fetches all marks, optionally filtered by semester
+export const getAllMarks = async (semester?: Semester): Promise<Mark[]> => {
+    try {
+        const constraints: QueryConstraint[] = [];
+        if (semester) {
+            constraints.push(where("semester", "==", semester));
+        }
+        const q = query(marksCollectionRef, ...constraints);
+        const marksSnapshot = await getDocs(q);
+        return marksSnapshot.docs.map(markDoc => ({
+            id: markDoc.id,
+            ...markDoc.data()
+        } as Mark));
+    } catch (error) {
+        console.error("Error fetching all marks from Firestore:", error);
+        return [];
+    }
+};
+
 
 export const getStudentByPrn = async (prn: string): Promise<Student | undefined> => {
   try {
@@ -525,7 +547,6 @@ export const getStudentByPrn = async (prn: string): Promise<Student | undefined>
 
 export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
   try {
-    // Ensure studentId (PRN) exists
     const studentQuery = query(usersCollectionRef, where("prn", "==", markData.studentId), where("role", "==", "student"));
     const studentSnapshot = await getDocs(studentQuery);
     if (studentSnapshot.empty) {
@@ -543,7 +564,7 @@ export const addMark = async (markData: Omit<Mark, 'id'>): Promise<Mark> => {
 export const updateMark = async (updatedMark: Mark): Promise<Mark | undefined> => {
   try {
     const markDocRef = doc(db, "marks", updatedMark.id);
-    const { id, ...markDataToUpdate } = updatedMark; // Firestore update doesn't need the id in data
+    const { id, ...markDataToUpdate } = updatedMark; 
     await updateDoc(markDocRef, markDataToUpdate);
     return updatedMark;
   } catch (error) {
@@ -576,13 +597,17 @@ export const updateStudentName = async (prn: string, newName: string): Promise<S
     const userDocRef = doc(db, "users", userDocToUpdate.id);
     await updateDoc(userDocRef, { name: newName });
 
-    // Re-fetch the student data to return it in Student format
-    return await getStudentByPrn(prn);
+    // Re-fetch the student data to return it in Student format (without marks for this specific update)
+    const updatedUserData = (await getDoc(userDocRef)).data() as User;
+    return {
+      id: updatedUserData.prn!,
+      name: updatedUserData.name,
+      email: updatedUserData.email,
+      marks: [] // Marks are not fetched here for simplicity, page should re-fetch full student if needed
+    };
 
   } catch (error) {
     console.error(`Error updating student name for PRN ${prn} in Firestore:`, error);
     return undefined;
   }
 };
-
-    

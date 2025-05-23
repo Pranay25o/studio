@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllAvailableSubjects } from '@/lib/mockData';
+import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getAllMarks } from '@/lib/mockData';
 import type { Mark, Student, User, AssessmentType, Semester } from '@/types';
 import { ASSESSMENT_MAX_SCORES } from '@/types';
 import { PlusCircle, Edit2, Loader2, Search, GraduationCap, AlertCircle, Trash2, CalendarFold } from 'lucide-react';
@@ -65,8 +65,8 @@ interface AggregatedMarkEntry {
 
 export function MarksManagement() {
   const { user } = useAuth();
-  const [students, setStudents] = useState<Student[]>([]);
-  const [allMarks, setAllMarks] = useState<(Mark & { studentName?: string })[]>([]);
+  const [students, setStudents] = useState<Omit<Student, 'marks'>[]>([]); // Student profiles without their marks
+  const [allMarksData, setAllMarksData] = useState<Mark[]>([]); // All marks fetched from Firestore
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -90,41 +90,59 @@ export function MarksManagement() {
   }, []);
 
   useEffect(() => {
+    // When working semester changes, reset form defaults
     form.reset({
         studentId: '',
         subject: '',
-        semester: selectedWorkingSemester || '',
+        semester: selectedWorkingSemester || '', // Pre-fill semester if selected
         scores: { CA1: null, CA2: null, MidSem: null, EndSem: null },
     });
+    // Also, re-fetch marks for the new semester or clear if no semester
+    if (selectedWorkingSemester) {
+        fetchAllMarksForSemester(selectedWorkingSemester);
+    } else {
+        setAllMarksData([]);
+    }
   }, [selectedWorkingSemester, form]);
 
 
   async function fetchInitialData() {
     setIsLoading(true);
     try {
-      const [fetchedStudents, allStudentMarksFromStore] = await Promise.all([
-        getAllStudents(), // Fetches students with their marks from Firestore
-        getAllStudents().then(stds => stds.reduce((acc, student) => {
-            // Ensure marks from student objects are also processed
-            const studentMarksWithInfo = student.marks.map(m => ({ ...m, studentName: student.name, studentId: student.id }));
-            return acc.concat(studentMarksWithInfo);
-        }, [] as (Mark & { studentName?: string; studentId: string })[]))
-      ]);
+      // Fetch student profiles (lightweight)
+      const fetchedStudents = await getAllStudents();
       setStudents(fetchedStudents);
-      setAllMarks(allStudentMarksFromStore);
 
+      // Set initial working semester if available
       if (user?.semesterAssignments && user.semesterAssignments.length > 0) {
         const sortedSemesters = [...user.semesterAssignments].sort((a, b) => b.semester.localeCompare(a.semester));
-        setSelectedWorkingSemester(sortedSemesters[0].semester);
-        form.setValue('semester', sortedSemesters[0].semester);
+        const initialSemester = sortedSemesters[0].semester;
+        setSelectedWorkingSemester(initialSemester);
+        // fetchAllMarksForSemester will be called by the useEffect hook for selectedWorkingSemester
+      } else {
+        setIsLoading(false); // No semester assignments, so nothing more to load initially
       }
 
     } catch (error) {
-      console.error("Error fetching initial marks data:", error)
-      toast({ title: "Error fetching data", description: "Could not load initial marks and student data.", variant: "destructive" });
+      console.error("Error fetching initial student data:", error)
+      toast({ title: "Error fetching student data", description: "Could not load student profiles.", variant: "destructive" });
+      setIsLoading(false);
+    }
+  }
+
+  async function fetchAllMarksForSemester(semester: Semester) {
+    setIsLoading(true);
+    try {
+        const marks = await getAllMarks(semester); // Fetch marks only for the selected semester
+        setAllMarksData(marks);
+    } catch (error) {
+        console.error(`Error fetching marks for semester ${semester}:`, error);
+        toast({ title: "Error Fetching Marks", description: `Could not load marks for ${semester}.`, variant: "destructive" });
+        setAllMarksData([]); // Clear marks on error
     }
     setIsLoading(false);
-  }
+}
+
 
   const teacherSemesters = useMemo(() => {
     return user?.semesterAssignments?.map(sa => sa.semester).sort((a,b) => b.localeCompare(a)) || [];
@@ -138,17 +156,14 @@ export function MarksManagement() {
 
   const aggregatedStudentSubjectMarks = useMemo(() => {
     const grouped: Record<string, AggregatedMarkEntry> = {};
-    const marksToProcess = selectedWorkingSemester
-        ? allMarks.filter(mark => mark.semester === selectedWorkingSemester)
-        : []; // Only process if a semester is selected
-
-    marksToProcess.forEach(mark => {
-      const key = `${mark.studentId}-${mark.subject}-${mark.semester}`;
+    // Marks are already filtered by semester via allMarksData state
+    allMarksData.forEach(mark => {
+      const key = `${mark.studentId}-${mark.subject}-${mark.semester}`; // Semester is now part of mark
       if (!grouped[key]) {
         const student = students.find(s => s.id === mark.studentId);
         grouped[key] = {
           studentId: mark.studentId,
-          studentName: student?.name || mark.studentName || 'N/A',
+          studentName: student?.name || 'N/A', // Student name from fetched student profiles
           subject: mark.subject,
           semester: mark.semester,
           marks: {},
@@ -157,7 +172,7 @@ export function MarksManagement() {
       grouped[key].marks[mark.assessmentType] = mark;
     });
     return Object.values(grouped).sort((a,b) => a.studentName.localeCompare(b.studentName) || a.subject.localeCompare(b.subject));
-  }, [allMarks, students, selectedWorkingSemester]);
+  }, [allMarksData, students]);
 
   const filteredAggregatedMarks = useMemo(() => {
     if (!searchTerm) return aggregatedStudentSubjectMarks;
@@ -229,38 +244,40 @@ export function MarksManagement() {
 
       for (const type of assessmentTypes) {
         const score = data.scores[type];
-        const existingMarkForComponent = allMarks.find(m =>
+        // Find existing mark for this specific component
+        const existingMarkForComponent = allMarksData.find(m =>
             m.studentId === data.studentId &&
             m.subject === data.subject &&
-            m.semester === data.semester &&
+            m.semester === data.semester && // Ensure semester matches
             m.assessmentType === type
         );
 
-        if (score !== null && score !== undefined) {
+        if (score !== null && score !== undefined) { // If a score is provided for this component
           const markPayload = {
             studentId: data.studentId,
             subject: data.subject,
             assessmentType: type,
             score: score,
             maxScore: ASSESSMENT_MAX_SCORES[type],
-            semester: data.semester,
+            semester: data.semester, // Semester from form context
           };
           if (existingMarkForComponent) {
+            // Update if score changed
             if (existingMarkForComponent.score !== score) {
               await apiUpdateMark({ ...existingMarkForComponent, ...markPayload });
             }
           } else {
+            // Add new mark component
             await apiAddMark(markPayload);
           }
-        } else if (existingMarkForComponent) {
+        } else if (existingMarkForComponent) { // If score is null/undefined but component existed, delete it
           await apiDeleteMark(existingMarkForComponent.id);
         }
       }
 
       toast({ title: "Marks Saved", description: `Marks for ${student.name} in ${data.subject} (${data.semester}) have been updated.` });
-      await fetchInitialData();
-      if (selectedWorkingSemester && !teacherSemesters.includes(selectedWorkingSemester)) {
-          setSelectedWorkingSemester(teacherSemesters[0] || null);
+      if (selectedWorkingSemester) {
+        await fetchAllMarksForSemester(selectedWorkingSemester); // Re-fetch marks for the current semester
       }
       setIsSheetOpen(false);
     } catch (error) {
@@ -279,14 +296,13 @@ export function MarksManagement() {
     try {
       for (const type of assessmentTypes) {
         const mark = entry.marks[type];
-        if (mark) {
+        if (mark && mark.id) { // Ensure mark and mark.id exist
           await apiDeleteMark(mark.id);
         }
       }
       toast({ title: "Marks Deleted", description: `All marks for ${entry.studentName} in ${entry.subject} (${entry.semester}) have been deleted.` });
-      await fetchInitialData();
-       if (selectedWorkingSemester && !teacherSemesters.includes(selectedWorkingSemester)) {
-          setSelectedWorkingSemester(teacherSemesters[0] || null);
+      if (selectedWorkingSemester) {
+       await fetchAllMarksForSemester(selectedWorkingSemester); // Re-fetch marks for the current semester
       }
     } catch (error) {
       toast({ title: "Error Deleting Marks", variant: "destructive" });
@@ -295,7 +311,7 @@ export function MarksManagement() {
   };
 
 
-  if (isLoading && !selectedWorkingSemester) {
+  if (isLoading && teacherSemesters.length === 0 && (!user || user.semesterAssignments?.length === 0)) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /> <span className="ml-2">Loading initial data...</span></div>;
   }
 
@@ -321,7 +337,7 @@ export function MarksManagement() {
           <Select
             value={selectedWorkingSemester || ""}
             onValueChange={(value) => {
-              setSelectedWorkingSemester(value);
+              setSelectedWorkingSemester(value as Semester);
             }}
             disabled={teacherSemesters.length === 0 || isSubmitting}
           >
@@ -341,7 +357,7 @@ export function MarksManagement() {
             <AlertCircle className="h-4 w-4" />
             <UIAlertTitle>No Semesters Assigned</UIAlertTitle>
             <UIAlertDescription>
-              You are not assigned to any semesters. Please contact an administrator.
+              You are not assigned to any semesters. Please contact an administrator. Marks management is disabled.
             </UIAlertDescription>
           </Alert>
         )}
@@ -383,7 +399,7 @@ export function MarksManagement() {
           <div className="text-center py-8">
             {searchTerm ? <Search className="mx-auto h-12 w-12 text-muted-foreground" /> : <GraduationCap className="mx-auto h-12 w-12 text-muted-foreground" />}
             <h3 className="mt-2 text-sm font-medium text-foreground">
-              {searchTerm ? `No marks found for "${searchTerm}" in ${selectedWorkingSemester}` : `No marks found for ${selectedWorkingSemester}`}
+              {searchTerm ? `No marks found for "${searchTerm}" in ${selectedWorkingSemester}` : `No marks recorded for ${selectedWorkingSemester}`}
             </h3>
             <p className="mt-1 text-sm text-muted-foreground">
               {searchTerm ? "Try a different search term." : `Get started by adding marks for a student in ${selectedWorkingSemester}.`}
@@ -459,9 +475,9 @@ export function MarksManagement() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4">
-             <input type="hidden" {...form.register("semester")} />
+             <input type="hidden" {...form.register("semester")} /> {/* Semester is set from selectedWorkingSemester */}
 
-            {!editingAggregatedMark && (
+            {!editingAggregatedMark && ( // Only show student/subject selection when adding new entry
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -527,7 +543,7 @@ export function MarksManagement() {
                                     id={name}
                                     type="number"
                                     placeholder={`Score / ${ASSESSMENT_MAX_SCORES[type]}`}
-                                    value={value === null || value === undefined ? '' : String(value)}
+                                    value={value === null || value === undefined || Number.isNaN(value) ? '' : String(value)}
                                     onChange={(e) => {
                                         const numValue = e.target.value === '' ? null : Number(e.target.value);
                                         onChange(numValue);
