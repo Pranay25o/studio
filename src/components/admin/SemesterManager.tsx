@@ -39,17 +39,18 @@ const semesterSchema = z.object({
 });
 type SemesterFormData = z.infer<typeof semesterSchema>;
 
-type FirestoreStatus = 'checking' | 'connected' | 'error' | 'misconfigured';
+type FirestoreStatus = 'initial' | 'checking' | 'connected' | 'error' | 'misconfigured';
 
 export function SemesterManager() {
   const [semesters, setSemesters] = useState<Semester[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // For the main list loading
+  const [isSubmitting, setIsSubmitting] = useState(false); // For form submissions
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [semesterToEdit, setSemesterToEdit] = useState<Semester | null>(null);
-  const [firestoreStatus, setFirestoreStatus] = useState<FirestoreStatus>('checking');
+  const [firestoreStatus, setFirestoreStatus] = useState<FirestoreStatus>('initial');
   const [totalSemestersLoaded, setTotalSemestersLoaded] = useState(0);
+  const [componentReady, setComponentReady] = useState(false);
 
   const { toast } = useToast();
   const form = useForm<SemesterFormData>({
@@ -57,17 +58,22 @@ export function SemesterManager() {
   });
 
   useEffect(() => {
-    loadSemesters();
+    setComponentReady(true);
   }, []);
+
+  useEffect(() => {
+    if (componentReady) {
+      loadSemesters();
+    }
+  }, [componentReady]);
 
   async function loadSemesters() {
     setIsLoading(true);
     setFirestoreStatus('checking');
-    setSemesters([]); // Clear previous data
-    setTotalSemestersLoaded(0); // Reset count
+    setSemesters([]); 
+    setTotalSemestersLoaded(0); 
 
     try {
-      // Explicitly check for placeholder API key
       const isMisconfigured = process.env.NEXT_PUBLIC_FIREBASE_API_KEY === "YOUR_API_KEY_HERE" ||
                              (typeof window !== "undefined" &&
                               (window as any).firebase?.app?.options?.apiKey === "YOUR_API_KEY_HERE");
@@ -75,15 +81,16 @@ export function SemesterManager() {
       if (isMisconfigured) {
         setFirestoreStatus('misconfigured');
         toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
-      } else {
-        const fetchedSemesters = await getSemesters();
-        setSemesters(fetchedSemesters);
-        setTotalSemestersLoaded(fetchedSemesters.length);
-        setFirestoreStatus('connected');
+        setIsLoading(false);
+        return;
       }
+      
+      const fetchedSemesters = await getSemesters();
+      setSemesters(fetchedSemesters);
+      setTotalSemestersLoaded(fetchedSemesters.length);
+      setFirestoreStatus('connected');
     } catch (error: any) {
       console.error("Error loading semesters from Firestore:", error);
-      // Check if the error is due to misconfiguration (e.g., if getSemesters throws "FirebaseMisconfigured")
       if (error.message === "FirebaseMisconfigured") {
          setFirestoreStatus('misconfigured');
          toast({ title: "Firebase Misconfigured", description: "Please update firebaseConfig.ts with your project credentials.", variant: "destructive", duration: 10000 });
@@ -115,7 +122,7 @@ export function SemesterManager() {
     } else {
       toast({ title: "Error Adding Semester", description: `Could not add "${data.semesterName}". It might already exist or an error occurred.`, variant: "destructive" });
     }
-    await loadSemesters();
+    if (componentReady) await loadSemesters();
     setIsSubmitting(false);
   };
 
@@ -130,7 +137,7 @@ export function SemesterManager() {
     } else {
       toast({ title: "Error Renaming Semester", description: `Could not rename "${semesterToEdit}". The new name might already exist or an error occurred.`, variant: "destructive" });
     }
-    await loadSemesters();
+    if (componentReady) await loadSemesters();
     setIsSubmitting(false);
   };
 
@@ -142,12 +149,14 @@ export function SemesterManager() {
     } else {
       toast({ title: "Error Deleting Semester", description: `Could not delete "${semesterName}". It might be in use or an error occurred.`, variant: "destructive" });
     }
-    await loadSemesters();
+    if (componentReady) await loadSemesters();
     setIsSubmitting(false);
   };
   
   const FirestoreStatusIndicator = () => {
     switch (firestoreStatus) {
+      case 'initial':
+        return <Badge variant="outline" className="text-xs"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Initializing...</Badge>;
       case 'checking':
         return <Badge variant="outline" className="text-xs"><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking Firestore...</Badge>;
       case 'connected':
@@ -160,6 +169,30 @@ export function SemesterManager() {
         return <Badge variant="outline" className="text-xs"><HelpCircle className="h-3 w-3 mr-1" />Unknown Status</Badge>;
     }
   };
+
+  if (!componentReady || (isLoading && firestoreStatus === 'initial')) {
+    return (
+      <Card className="w-full max-w-2xl mx-auto shadow-xl">
+        <CardHeader>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="text-2xl flex items-center gap-2">
+                <CalendarDays className="h-6 w-6 text-primary" /> Manage Semesters
+              </CardTitle>
+              <CardDescription>Add, rename, or delete academic semesters. Changes here update Firestore globally.</CardDescription>
+            </div>
+            <FirestoreStatusIndicator />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex justify-center items-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <span className="ml-2">Initializing component...</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="w-full max-w-2xl mx-auto shadow-xl">
@@ -179,7 +212,7 @@ export function SemesterManager() {
           <Button 
             onClick={handleOpenAddModal} 
             className="bg-primary hover:bg-primary/90 text-primary-foreground" 
-            disabled={isSubmitting || firestoreStatus === 'misconfigured' || firestoreStatus === 'error'}
+            disabled={isSubmitting || firestoreStatus !== 'connected'}
           >
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Semester
           </Button>
@@ -303,3 +336,5 @@ export function SemesterManager() {
     </Card>
   );
 }
+
+    
