@@ -12,7 +12,7 @@ interface AuthContextType {
   user: User | null;
   role: Role | null;
   isLoading: boolean;
-  isFirebaseMisconfiguredError: boolean; // New state
+  isFirebaseMisconfiguredError: boolean;
   login: (email: string, pass: string, roleAttempt: Role) => Promise<boolean>;
   logout: () => void;
   register: (name: string, email: string, pass: string, role: Role, prn?: string) => Promise<boolean>;
@@ -30,7 +30,7 @@ const robustTrim = (str: string | undefined): string => {
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isFirebaseMisconfiguredError, setIsFirebaseMisconfiguredError] = useState(false); // New state
+  const [isFirebaseMisconfiguredError, setIsFirebaseMisconfiguredError] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
 
@@ -50,12 +50,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async (emailInput: string, _pass: string, roleAttempt: Role): Promise<boolean> => {
     setIsLoading(true);
-    setIsFirebaseMisconfiguredError(false); // Reset error state on new login attempt
+    setIsFirebaseMisconfiguredError(false);
     console.log('[AuthContext] LOGIN ATTEMPT: Raw emailInput="|', emailInput, '|", Length:', emailInput?.length);
     const cleanedEmailInput = robustTrim(emailInput);
     console.log('[AuthContext] After robustTrim: cleanedEmailInput="|', cleanedEmailInput, '|", Length:', cleanedEmailInput?.length);
     const email = cleanedEmailInput.toLowerCase();
-    console.log('[AuthContext] After toLowerCase: final email for lookup="|', email, '|", Length:', email?.length);
+    console.log(`[AuthContext] After toLowerCase: final email for lookup="|${email}|", Length:`, email?.length);
     console.log(`[AuthContext] Attempting to find user with final email="|${email}|" and roleAttempt="${roleAttempt}" in Firestore.`);
 
     try {
@@ -64,7 +64,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         console.log(`[AuthContext] USER FOUND in Firestore: ID="${foundUser.id}", Name="${foundUser.name}", Email="${foundUser.email}", StoredRole="${foundUser.role}"`);
         console.log(`[AuthContext] COMPARING ROLES: StoredRole="${foundUser.role}" (Type: ${typeof foundUser.role}) vs RoleAttempt="${roleAttempt}" (Type: ${typeof roleAttempt})`);
         if (foundUser.role === roleAttempt) {
-          console.log('[AuthContext] LOGIN SUCCESSFUL for user:', foundUser.name);
+          console.log(`[AuthContext] LOGIN SUCCESSFUL for user: ${foundUser.name}, Role: ${foundUser.role}`);
           setUser(foundUser);
           sessionStorage.setItem('campusUser', JSON.stringify(foundUser));
           setIsLoading(false);
@@ -74,13 +74,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Login Failed", description: "Role mismatch. Please select the correct role.", variant: "destructive" });
         }
       } else {
+        // User not found
         console.error(`[AuthContext] USER NOT FOUND for email (robustly trimmed, lowercased): |${email}|. Login failed.`);
-        toast({ title: "Login Failed", description: "User not found or incorrect credentials/role.", variant: "destructive" });
+        if (email === 'admin@example.com') {
+          toast({
+            title: "Admin Login Failed",
+            description: "The default admin 'admin@example.com' was not found. Please register this account with the 'Admin' role.",
+            variant: "destructive",
+            duration: 8000,
+          });
+        } else {
+          toast({ title: "Login Failed", description: "User not found or incorrect credentials/role.", variant: "destructive" });
+        }
       }
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
         console.error("[AuthContext] Firebase Misconfigured Error during login:", error);
-        setIsFirebaseMisconfiguredError(true); // Set the specific error state
+        setIsFirebaseMisconfiguredError(true);
         toast({ title: "Firebase Misconfigured!", description: "CRITICAL: Please update src/lib/firebaseConfig.ts with your project credentials. Login cannot proceed.", variant: "destructive", duration: 15000 });
       } else if (error.message === "DatabaseQueryFailed") {
         toast({ title: "Login Error", description: "Could not connect to the database to verify credentials. Please try again later.", variant: "destructive" });
@@ -96,16 +106,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const register = async (name: string, emailInput: string, _pass: string, role: Role, prn?: string): Promise<boolean> => {
     setIsLoading(true);
-    setIsFirebaseMisconfiguredError(false); // Reset error state
+    setIsFirebaseMisconfiguredError(false);
     const email = robustTrim(emailInput).toLowerCase();
     const cleanedName = robustTrim(name);
     const cleanedPrn = prn ? robustTrim(prn).toUpperCase() : undefined;
 
     try {
-      const newUserPayload: Parameters<typeof apiCreateUser>[0] = { // Infer type from apiCreateUser
+      const newUserPayload: Parameters<typeof apiCreateUser>[0] = {
         email: email,
         name: cleanedName,
         role: role,
+        subjects: [], // Initialize with empty arrays
+        semesterAssignments: [], // Initialize with empty arrays
       };
       if (role === 'student' && cleanedPrn) {
         newUserPayload.prn = cleanedPrn;
@@ -117,7 +129,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return true;
     } catch (error: any) {
       if (error.message === "FirebaseMisconfigured") {
-        setIsFirebaseMisconfiguredError(true); // Set the specific error state
+        setIsFirebaseMisconfiguredError(true);
         toast({ title: "Firebase Misconfigured!", description: "CRITICAL: Please update src/lib/firebaseConfig.ts with your project credentials. Registration cannot proceed.", variant: "destructive", duration: 15000 });
       } else {
         console.error('[AuthContext] Registration error:', error);
@@ -131,13 +143,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const logout = () => {
     setUser(null);
     sessionStorage.removeItem('campusUser');
-    setIsFirebaseMisconfiguredError(false); // Reset on logout
+    setIsFirebaseMisconfiguredError(false);
     router.push('/login');
   };
 
   const refreshAuthUser = async () => {
     if (user?.email) {
-      setIsFirebaseMisconfiguredError(false); // Reset error state
+      setIsFirebaseMisconfiguredError(false);
       console.log('[AuthContext] Attempting to refresh user session for:', user.email);
       try {
         const latestUserData = await getUserByEmail(user.email);
@@ -156,8 +168,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Firebase Misconfigured!", description: "Cannot refresh session. Please update src/lib/firebaseConfig.ts.", variant: "destructive", duration: 15000 });
         } else {
           console.error('[AuthContext] Error refreshing user session:', error);
-          // Optionally logout if refresh fails due to other db errors
-          // logout();
         }
       }
     } else {
