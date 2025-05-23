@@ -5,7 +5,8 @@ import { useForm } from "react-hook-form";
 import * as z from "zod";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AtSign, KeyRound, User, Info, Users } from "lucide-react";
+import { AtSign, KeyRound, User as UserIcon, Info, Users, BookUser } from "lucide-react"; // Renamed User to UserIcon
+import React, { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -19,9 +20,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
-import type { Role } from "@/types";
+import type { Role, User } from "@/types"; // Added User type
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { getAllTeachers } from "@/lib/mockData"; // Import getAllTeachers
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const formSchema = z.object({
   name: z.string().min(2, { message: "Name must be at least 2 characters." }),
@@ -45,6 +48,7 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [teachersList, setTeachersList] = useState<User[]>([]); // State for teachers list
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -59,8 +63,26 @@ export default function RegisterPage() {
 
   const selectedRole = form.watch("role");
 
+  useEffect(() => {
+    if (selectedRole === 'student') {
+      const fetchTeachers = async () => {
+        try {
+          const teachers = await getAllTeachers();
+          setTeachersList(teachers);
+        } catch (error) {
+          console.error("Failed to fetch teachers:", error);
+          toast({ title: "Error", description: "Could not load teacher information.", variant: "destructive" });
+        }
+      };
+      fetchTeachers();
+    } else {
+      setTeachersList([]); // Clear list if not student
+    }
+  }, [selectedRole, toast]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
+    // For teachers, subjects are not handled in this form, they would be assigned by an admin.
     const success = await register(values.name, values.email, values.password, values.role as Role, values.prn);
     setIsLoading(false);
     if (success) {
@@ -94,7 +116,7 @@ export default function RegisterPage() {
                 <FormLabel className="text-foreground/80">Full Name</FormLabel>
                 <FormControl>
                   <div className="relative">
-                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <UserIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input placeholder="John Doe" {...field} className="pl-10" />
                   </div>
                 </FormControl>
@@ -165,22 +187,53 @@ export default function RegisterPage() {
             )}
           />
           {selectedRole === "student" && (
-            <FormField
-              control={form.control}
-              name="prn"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel className="text-foreground/80">PRN (Student ID)</FormLabel>
-                  <FormControl>
-                    <div className="relative">
-                      <Info className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input placeholder="e.g., PRN001" {...field} className="pl-10" />
-                    </div>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+            <>
+              <FormField
+                control={form.control}
+                name="prn"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-foreground/80">PRN (Student ID)</FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <Info className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input placeholder="e.g., PRN001" {...field} className="pl-10" />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {teachersList.length > 0 && (
+                <Card className="mt-4 border-accent">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-lg flex items-center gap-2 text-accent">
+                      <BookUser className="h-5 w-5" />
+                      Available Teachers
+                    </CardTitle>
+                    <CardDescription>
+                      Here are the teachers at CampusMarks.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-40">
+                      <ul className="space-y-2">
+                        {teachersList.map(teacher => (
+                          <li key={teacher.id} className="p-2 border-b text-sm">
+                            <p className="font-semibold">{teacher.name}</p>
+                            {teacher.subjects && teacher.subjects.length > 0 && (
+                              <p className="text-xs text-muted-foreground">
+                                Teaches: {teacher.subjects.join(', ')}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
               )}
-            />
+            </>
           )}
           <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isLoading}>
             {isLoading ? "Creating Account..." : "Create Account"}

@@ -6,6 +6,7 @@ export interface User {
   name: string;
   role: Role;
   prn?: string; // For students
+  subjects?: string[]; // For teachers, list of subjects they can manage
 }
 
 export interface Mark {

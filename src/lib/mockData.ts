@@ -1,7 +1,8 @@
 import type { Student, User, Mark, Role } from '@/types';
 
 export const mockUsers: User[] = [
-  { id: 'teacher1', email: 'teacher@example.com', name: 'Prof. Ada Lovelace', role: 'teacher' },
+  { id: 'teacher1', email: 'teacher@example.com', name: 'Prof. Ada Lovelace', role: 'teacher', subjects: ['Mathematics', 'Physics'] },
+  { id: 'teacher2', email: 'prof.curie@example.com', name: 'Prof. Marie Curie', role: 'teacher', subjects: ['Chemistry', 'Advanced Physics'] },
   { id: 'student1', email: 'student1@example.com', name: 'Alice Smith', role: 'student', prn: 'PRN001' },
   { id: 'student2', email: 'student2@example.com', name: 'Bob Johnson', role: 'student', prn: 'PRN002' },
 ];
@@ -44,6 +45,11 @@ export const getStudentByPrn = async (prn: string): Promise<Student | undefined>
 export const getAllStudents = async (): Promise<Student[]> => {
   await new Promise(resolve => setTimeout(resolve, 300));
   return mockStudents;
+};
+
+export const getAllTeachers = async (): Promise<User[]> => {
+  await new Promise(resolve => setTimeout(resolve, 300));
+  return mockUsers.filter(user => user.role === 'teacher');
 };
 
 export const addMark = async (mark: Omit<Mark, 'id'>): Promise<Mark> => {
@@ -108,12 +114,15 @@ export const getUserByEmail = async (email: string): Promise<User | undefined> =
   return mockUsers.find(u => u.email === email);
 }
 
-export const createUser = async (userData: Omit<User, 'id'>): Promise<User> => {
+export const createUser = async (userData: Omit<User, 'id'> & { subjects?: string[] }): Promise<User> => {
   await new Promise(resolve => setTimeout(resolve, 300));
   const newUser: User = { ...userData, id: `user${mockUsers.length + 1}`};
   if (userData.role === 'student' && !userData.prn) {
     newUser.prn = `PRN${String(mockStudents.length + 1).padStart(3, '0')}`;
   }
+  // For teachers, subjects would be assigned via an admin interface in a real app
+  // For now, new teachers won't have subjects by default through this function.
+  // We could add `subjects: userData.subjects || []` if registration included it.
   mockUsers.push(newUser);
   if (newUser.role === 'student' && newUser.prn) {
     const existingStudent = mockStudents.find(s => s.id === newUser.prn);

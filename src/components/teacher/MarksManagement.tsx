@@ -18,10 +18,10 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark, getStudentByPrn } from '@/lib/mockData';
-import type { Mark, Student, MarksSuggestionInput } from '@/types';
+import { getAllStudents, addMark as apiAddMark, updateMark as apiUpdateMark, deleteMark as apiDeleteMark } from '@/lib/mockData';
+import type { Mark, Student, MarksSuggestionInput, User } from '@/types';
 import { generateMarksSuggestions } from '@/ai/flows/generate-marks-suggestions';
-import { PlusCircle, Edit2, Trash2, Lightbulb, Loader2, Search } from 'lucide-react';
+import { PlusCircle, Edit2, Trash2, Lightbulb, Loader2, Search, GraduationCap, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import {
@@ -35,6 +35,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { useAuth } from '@/contexts/AuthContext';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 
 
 const markSchema = z.object({
@@ -52,6 +54,7 @@ const markSchema = z.object({
 type MarkFormData = z.infer<typeof markSchema>;
 
 export function MarksManagement() {
+  const { user } = useAuth(); // Get current user
   const [students, setStudents] = useState<Student[]>([]);
   const [allMarks, setAllMarks] = useState<Mark[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -60,6 +63,9 @@ export function MarksManagement() {
   const [editingMark, setEditingMark] = useState<Mark | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const { toast } = useToast();
+
+  const teacherSubjects = useMemo(() => user?.subjects || [], [user]);
+  const canManageAnySubject = teacherSubjects.length > 0;
 
   const { control, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<MarkFormData>({
     resolver: zodResolver(markSchema),
@@ -87,13 +93,25 @@ export function MarksManagement() {
     setIsLoading(false);
   }
 
+  const isTeacherAuthorizedForSubject = (subject: string) => {
+    return teacherSubjects.includes(subject);
+  };
+
   const handleAddMark = () => {
+    if (!canManageAnySubject) {
+      toast({ title: "Unauthorized", description: "You are not assigned to manage any subjects.", variant: "destructive" });
+      return;
+    }
     setEditingMark(null);
-    reset({ studentId: '', subject: '', score: 0, maxScore: 100, term: '', grade: '' });
+    reset({ studentId: '', subject: teacherSubjects[0] || '', score: 0, maxScore: 100, term: '', grade: '' });
     setIsDialogOpen(true);
   };
 
   const handleEditMark = (mark: Mark) => {
+    if (!isTeacherAuthorizedForSubject(mark.subject)) {
+        toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${mark.subject}.`, variant: "destructive" });
+        return;
+    }
     setEditingMark(mark);
     reset({
       studentId: mark.studentId,
@@ -106,12 +124,16 @@ export function MarksManagement() {
     setIsDialogOpen(true);
   };
 
-  const handleDeleteMark = async (markId: string) => {
+  const handleDeleteMark = async (mark: Mark) => {
+    if (!isTeacherAuthorizedForSubject(mark.subject)) {
+        toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${mark.subject}.`, variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
     try {
-      await apiDeleteMark(markId);
+      await apiDeleteMark(mark.id);
       toast({ title: "Mark Deleted", description: "The mark has been successfully deleted." });
-      fetchData(); // Refresh data
+      fetchData(); 
     } catch (error) {
       toast({ title: "Error Deleting Mark", description: "Could not delete the mark.", variant: "destructive" });
     }
@@ -119,6 +141,10 @@ export function MarksManagement() {
   };
 
   const onSubmit = async (data: MarkFormData) => {
+    if (!isTeacherAuthorizedForSubject(data.subject)) {
+        toast({ title: "Unauthorized", description: `You are not authorized to manage marks for ${data.subject}.`, variant: "destructive" });
+        return;
+    }
     setIsSubmitting(true);
     try {
       if (editingMark) {
@@ -128,7 +154,7 @@ export function MarksManagement() {
         await apiAddMark(data);
         toast({ title: "Mark Added", description: "The mark has been successfully added." });
       }
-      fetchData(); // Refresh data
+      fetchData(); 
       setIsDialogOpen(false);
     } catch (error) {
       toast({ title: "Error Saving Mark", description: "Could not save the mark.", variant: "destructive" });
@@ -138,8 +164,12 @@ export function MarksManagement() {
 
   const handleSuggestMarks = async () => {
     if (!currentStudentId || !currentSubject || !currentMaxScore) {
-      toast({ title: "Missing Information", description: "Please select a student, enter subject and max score first.", variant: "destructive" });
+      toast({ title: "Missing Information", description: "Please select a student, subject, and enter max score.", variant: "destructive" });
       return;
+    }
+    if (!isTeacherAuthorizedForSubject(currentSubject)) {
+        toast({ title: "Unauthorized", description: `You are not authorized to suggest marks for ${currentSubject}.`, variant: "destructive" });
+        return;
     }
     const student = students.find(s => s.id === currentStudentId);
     if (!student) {
@@ -178,12 +208,21 @@ export function MarksManagement() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <CardTitle className="text-2xl">Marks Management</CardTitle>
-            <CardDescription>Add, edit, or delete student marks.</CardDescription>
+            <CardDescription>Add, edit, or delete student marks for your assigned subjects.</CardDescription>
           </div>
-          <Button onClick={handleAddMark} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+          <Button onClick={handleAddMark} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={!canManageAnySubject}>
             <PlusCircle className="mr-2 h-4 w-4" /> Add New Mark
           </Button>
         </div>
+        {!canManageAnySubject && user?.role === 'teacher' && (
+          <Alert variant="destructive" className="mt-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>No Subjects Assigned</AlertTitle>
+            <AlertDescription>
+              You are not currently assigned to manage marks for any subjects. Please contact an administrator.
+            </AlertDescription>
+          </Alert>
+        )}
         <div className="mt-4 relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -200,7 +239,7 @@ export function MarksManagement() {
              <div className="text-center py-8">
                 <GraduationCap className="mx-auto h-12 w-12 text-muted-foreground" />
                 <h3 className="mt-2 text-sm font-medium text-foreground">No marks found</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Get started by adding a new mark.</p>
+                <p className="mt-1 text-sm text-muted-foreground">Get started by adding a new mark for your assigned subjects.</p>
             </div>
         )}
         {filteredMarks.length === 0 && searchTerm && (
@@ -226,7 +265,9 @@ export function MarksManagement() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredMarks.map((mark) => (
+            {filteredMarks.map((mark) => {
+              const canEditOrDelete = isTeacherAuthorizedForSubject(mark.subject);
+              return (
               <TableRow key={mark.id}>
                 <TableCell>{mark.studentId}</TableCell>
                 <TableCell>{mark.studentName || students.find(s => s.id === mark.studentId)?.name || 'N/A'}</TableCell>
@@ -238,13 +279,13 @@ export function MarksManagement() {
                   {mark.grade ? <Badge variant="secondary">{mark.grade}</Badge> : '-'}
                 </TableCell>
                 <TableCell className="text-right space-x-2">
-                  <Button variant="outline" size="icon" onClick={() => handleEditMark(mark)} className="hover:text-accent hover:border-accent">
+                  <Button variant="outline" size="icon" onClick={() => handleEditMark(mark)} className="hover:text-accent hover:border-accent" disabled={!canEditOrDelete || isSubmitting}>
                     <Edit2 className="h-4 w-4" />
                     <span className="sr-only">Edit Mark</span>
                   </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
-                      <Button variant="outline" size="icon" className="hover:text-destructive hover:border-destructive">
+                      <Button variant="outline" size="icon" className="hover:text-destructive hover:border-destructive" disabled={!canEditOrDelete || isSubmitting}>
                         <Trash2 className="h-4 w-4" />
                         <span className="sr-only">Delete Mark</span>
                       </Button>
@@ -258,7 +299,7 @@ export function MarksManagement() {
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => handleDeleteMark(mark.id)} className="bg-destructive hover:bg-destructive/90">
+                        <AlertDialogAction onClick={() => handleDeleteMark(mark)} className="bg-destructive hover:bg-destructive/90" disabled={isSubmitting}>
                           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin"/> : "Delete"}
                         </AlertDialogAction>
                       </AlertDialogFooter>
@@ -266,7 +307,7 @@ export function MarksManagement() {
                   </AlertDialog>
                 </TableCell>
               </TableRow>
-            ))}
+            )})}
           </TableBody>
         </Table>
         </div>
@@ -289,7 +330,7 @@ export function MarksManagement() {
                 render={({ field }) => (
                   <div className="space-y-1">
                     <Label htmlFor="studentId">Student PRN</Label>
-                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={!!editingMark}>
+                    <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark}>
                       <SelectTrigger id="studentId" className="w-full">
                         <SelectValue placeholder="Select Student" />
                       </SelectTrigger>
@@ -317,15 +358,33 @@ export function MarksManagement() {
                 )}
               />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="subject">Subject</Label>
-              <Controller
+            
+            <Controller
                 name="subject"
                 control={control}
-                render={({ field }) => <Input id="subject" placeholder="e.g., Mathematics" {...field} />}
+                render={({ field }) => (
+                  <div className="space-y-1">
+                    <Label htmlFor="subject">Subject</Label>
+                    {canManageAnySubject ? (
+                      <Select onValueChange={field.onChange} value={field.value} disabled={!!editingMark && !isTeacherAuthorizedForSubject(editingMark.subject)}>
+                        <SelectTrigger id="subject" className="w-full">
+                          <SelectValue placeholder="Select Subject" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {teacherSubjects.map(subject => (
+                            <SelectItem key={subject} value={subject}>
+                              {subject}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input id="subject" placeholder="No subjects assigned" {...field} disabled />
+                    )}
+                    {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
+                  </div>
+                )}
               />
-              {errors.subject && <p className="text-sm text-destructive">{errors.subject.message}</p>}
-            </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                <div className="space-y-1">
@@ -358,7 +417,13 @@ export function MarksManagement() {
               {errors.grade && <p className="text-sm text-destructive">{errors.grade.message}</p>}
             </div>
             
-            <Button type="button" variant="outline" onClick={handleSuggestMarks} className="w-full" disabled={isSubmitting || !currentStudentId || !currentSubject || !currentMaxScore}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={handleSuggestMarks} 
+              className="w-full" 
+              disabled={isSubmitting || !currentStudentId || !currentSubject || !currentMaxScore || !canManageAnySubject || !isTeacherAuthorizedForSubject(currentSubject)}
+            >
               {isSubmitting && watch('score') === undefined ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Lightbulb className="mr-2 h-4 w-4" />}
               Suggest Marks (AI)
             </Button>
@@ -366,7 +431,11 @@ export function MarksManagement() {
             <DialogClose asChild>
                 <Button type="button" variant="outline" disabled={isSubmitting}>Cancel</Button>
             </DialogClose>
-            <Button type="submit" disabled={isSubmitting} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || !canManageAnySubject || (currentSubject && !isTeacherAuthorizedForSubject(currentSubject))} 
+              className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
               {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : (editingMark ? 'Save Changes' : 'Add Mark')}
             </Button>
           </DialogFooter>
